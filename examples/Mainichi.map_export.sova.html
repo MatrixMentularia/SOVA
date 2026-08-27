@@ -1,0 +1,1197 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>СОВА — Экспорт Карты (Прототип)</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --va-bg: #f8f9fa;
+    --va-panel-bg: #ffffff;
+    --va-accent: #e94560;
+    --va-accent-light: #ff6b6b;
+    --va-blue: #5dade2;
+    --va-text: #333;
+    --va-muted: #6c757d;
+    --va-border: #dee2e6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Georgia, serif;
+    font-size: 14px;
+    color: var(--va-text);
+    background: var(--va-bg);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+  }
+  /* Sidebar */
+  #sidebar {
+    width: 340px;
+    height: 100vh;
+    background: var(--va-panel-bg);
+    border-right: 1px solid var(--va-border);
+    padding: 20px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+
+  /* Фиксируем элементы, чтобы они не сжимались */
+  #sidebar > div:not(#table-wrap) {
+    flex-shrink: 0;
+  }
+  #sidebar h2 {
+    font-size: 18px;
+    color: var(--va-accent);
+    margin-bottom: 4px;
+  }
+  .section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--va-muted);
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .settings {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .settings label {
+    font-size: 11px;
+    color: var(--va-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .settings input, .settings select {
+    padding: 8px;
+    background: #fff;
+    border: 1px solid var(--va-border);
+    border-radius: 6px;
+    color: var(--va-text);
+    font-size: 12px;
+    width: 80px;
+  }
+  
+  .btn-row {
+    display: flex;
+    gap: 8px;
+  }
+  .btn {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn.primary { background: var(--va-accent); color: white; }
+  .btn.primary:hover { background: var(--va-accent-light); }
+  .btn.secondary { background: var(--va-border); color: var(--va-muted); }
+  .btn.secondary:hover { background: #ced4da; }
+  .controls-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .control-group:first-child {
+    flex: 1;
+    min-width: 80px;
+  }
+  .control-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--va-muted);
+    font-weight: 600;
+  }
+  .control-group select,
+  .control-group input {
+    padding: 8px 4px;
+    background: #fff;
+    border: 1px solid var(--va-border);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--va-text);
+    width: 100%;
+  }
+  .control-group:nth-child(2) input {
+    width: 50px;
+    text-align: center;
+  }
+  .controls-row .btn {
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+  .controls-row .btn.secondary {
+    flex: none;
+    width: 36px;
+    padding: 8px 0;
+    text-align: center;
+  }
+  /* Table */
+
+
+.table-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+
+.table-section .section-label {
+  flex-shrink: 0;
+}
+  #table-wrap {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border: 1px solid var(--va-border);
+    border-radius: 6px;
+    min-height: 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  th {
+    position: sticky;
+    top: 0;
+    background: #e9ecef;
+    padding: 6px 8px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid #ccc;
+    white-space: nowrap;
+    z-index: 1;
+  }
+  td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #eee;
+    vertical-align: top;
+  }
+  #table-body td:nth-child(4) {
+    overflow-wrap: anywhere;
+  }
+  tr.active { background: #fff3e0; }
+  tr:hover { background: #f8f9fa; }
+  .footer {
+    font-size: 10px;
+    color: #999;
+    text-align: center;
+    padding-top: 12px;
+    border-top: 1px solid var(--va-border);
+    line-height: 1.5;
+  }
+  .footer a { color: var(--va-accent); text-decoration: none; }
+  /* Main area */
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  #map-wrap {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+  }
+  #map { width: 100%; height: 100%; }
+  .map-control-panel {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(255,255,255,0.95);
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--va-border);
+    font-size: 12px;
+    z-index: 500;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .map-control-panel label {
+    font-weight: 600;
+    color: var(--va-text);
+    white-space: nowrap;
+  }
+  .map-control-panel select {
+    padding: 6px 8px;
+    background: #fff;
+    border: 1px solid var(--va-border);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--va-text);
+    cursor: pointer;
+  }
+
+  .map-attribution {
+    position: absolute;
+    bottom: 4px;
+    right: 8px;
+    font-size: 11px;
+    color: #999;
+    z-index: 500;
+    pointer-events: auto;
+    line-height: 1.4;
+    text-align: right;
+  }
+  .map-attribution a {
+    color: #999;
+    text-decoration: none;
+    border-bottom: 1px dotted #bbb;
+  }
+  .map-attribution a:hover {
+    color: var(--va-accent);
+    border-bottom-color: var(--va-accent);
+  }
+
+  /* Legend */
+  .legend {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(255,255,255,0.95);
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--va-border);
+    font-size: 12px;
+    z-index: 500;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    display: none;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid white; box-shadow: 0 0 0 1px #ccc;
+  }
+  /* Popup */
+  .leaflet-popup-content-wrapper {
+    border-radius: 8px !important;
+    border: 1px solid var(--va-accent) !important;
+    font-size: 13px !important;
+  }
+  /* Marker icon */
+  .marker-icon {
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: bold;
+    color: white;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    border: 2px solid #fff;
+  }
+  @keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.25); }
+    100% { transform: scale(1); }
+  }
+  .marker-fresh {
+    animation: pulse 0.6s ease;
+    box-shadow: 0 0 0 3px white, 0 0 0 5px var(--va-accent), 0 2px 8px rgba(0,0,0,0.4) !important;
+  }
+  /* Timeline */
+  #timeline {
+    height: 120px;
+    background: var(--va-panel-bg);
+    border-top: 1px solid var(--va-border);
+    padding: 12px 24px;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  #tl-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  #tl-date {
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--va-accent);
+    font-family: 'Consolas', monospace;
+  }
+  #tl-range { font-size: 11px; color: var(--va-muted); }
+  #tl-track-wrap { position: relative; padding: 8px 0; }
+  #tl-track {
+    position: relative;
+    width: 100%;
+    height: 6px;
+    background: #e9ecef;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  #tl-fill {
+    position: absolute; left: 0; top: 0; height: 100%;
+    background: linear-gradient(90deg, var(--va-accent), var(--va-accent-light));
+    border-radius: 3px; width: 0%; pointer-events: none;
+  }
+  #tl-thumb {
+    position: absolute; top: 50%; transform: translate(-50%, -50%);
+    width: 16px; height: 16px; background: var(--va-accent);
+    border: 3px solid white; border-radius: 50%;
+    cursor: grab; z-index: 10; left: 0%;
+    box-shadow: 0 2px 8px rgba(233,69,96,0.4);
+  }
+  #tl-thumb:active { cursor: grabbing; }
+  #tl-ticks, #tl-events { position: relative; width: 100%; }
+  #tl-ticks { height: 20px; margin-top: 2px; }
+  #tl-events { height: 14px; margin-top: 2px; }
+  .tick { position: absolute; top: 0; transform: translateX(-50%); text-align: center; }
+  .tick-line { width: 1px; height: 6px; background: var(--va-muted); margin: 0 auto 2px; }
+  .tick-label { font-size: 9px; color: var(--va-muted); white-space: nowrap; }
+  .event-dot {
+    position: absolute; bottom: -2px; transform: translateX(-50%);
+    width: 8px; height: 8px; background: var(--va-blue);
+    border-radius: 50%; cursor: pointer;
+    border: 2px solid var(--va-panel-bg); z-index: 5;
+  }
+  .event-dot:hover, .event-dot.active {
+    width: 12px; height: 12px;
+    background: var(--va-accent); border-color: white;
+  }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div id="sidebar">
+  <div>
+    <div id="project-title" style="font-size:18px; font-weight:bold; color:var(--va-text); line-height:1.3; margin-bottom:4px;">Пункты "Майнити симбун"</div>
+    <div style="font-size:11px; color:var(--va-muted); letter-spacing:0.5px;">Геовизуализация набора данных, подготовленого в рамках проекта МГИМО МИД России по картографированию дипломатических представительств, консульских учреждений и сопутствующих структур стран мира.</div>
+  </div>
+
+  <div class="controls-row">
+    <div class="control-group">
+      <label class="control-label" for="mode-select">Режим</label>
+      <select id="mode-select">
+        <option value="event">События</option>
+        <option value="time">Время</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label class="control-label" for="speed-input">Скорость</label>
+      <input type="number" id="speed-input" value="2" min="0.5" max="10" step="0.5">
+    </div>
+    <button class="btn primary" id="play-btn">▶ Играть</button>
+    <button class="btn secondary" id="reset-btn">↺</button>
+  </div>
+
+  <div class="table-section">
+    <div class="section-label">Точки маршрута</div>
+    <div id="table-wrap">
+      <table>
+        <thead><tr><th>№</th><th>Название</th><th>Дата</th><th>Прим.</th></tr></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">
+    Создано в <b>СОВА</b> — Текст и Карта<br>
+    © Марина Шилова | <a href="mailto:marvsh@yandex.ru">marvsh@yandex.ru</a>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <div id="map-wrap">
+    <div id="map"></div>
+    <div id="map"></div>
+    <div class="map-attribution">
+      <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a> |
+      © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a> |
+      <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>
+    </div>
+    <div class="map-control-panel" id="zoom-panel">
+      <label for="max-zoom-select">Макс. зум</label>
+      <select id="max-zoom-select">
+        <option value="18">Дом</option>
+        <option value="14" selected>Улица</option>
+        <option value="11">Город</option>
+        <option value="8">Область</option>
+        <option value="5">Регион</option>
+      </select>
+    </div>
+    <div class="legend" id="legend"></div>
+  </div>
+  <div id="timeline">
+    <div id="tl-header">
+      <div id="tl-date">—</div>
+      <div id="tl-range">—</div>
+    </div>
+    <div id="tl-track-wrap">
+      <div id="tl-track"><div id="tl-fill"></div><div id="tl-thumb"></div></div>
+    </div>
+    <div id="tl-events"></div>
+    <div id="tl-ticks"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+
+// === ДАННЫЕ ПРОЕКТА (автоматически подставляются при экспорте) ===
+const DATA = [
+  {
+    "id": "g-001",
+    "name": "Лондон",
+    "lat": 51.5074,
+    "lon": -0.1278,
+    "date": "1898",
+    "group": "города",
+    "order": 1,
+    "description": "Соединенное Королевство Великобритании и Северной Ирландии\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-002",
+    "name": "Вашингтон",
+    "lat": 38.9072,
+    "lon": -77.0369,
+    "date": "1898",
+    "group": "города",
+    "order": 2,
+    "description": "Соединенные Штаты Америки\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-003",
+    "name": "Пекин",
+    "lat": 39.9042,
+    "lon": 116.4074,
+    "date": "1900",
+    "group": "города",
+    "order": 3,
+    "description": "Китайская Народная Республика\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-004",
+    "name": "Сеул",
+    "lat": 37.5665,
+    "lon": 126.978,
+    "date": "1900",
+    "group": "города",
+    "order": 4,
+    "description": "Республика Корея\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-005",
+    "name": "Нью-Йорк",
+    "lat": 40.7128,
+    "lon": -74.006,
+    "date": "1919",
+    "group": "города",
+    "order": 5,
+    "description": "Соединенные Штаты Америки\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-006",
+    "name": "Тайбэй",
+    "lat": 25.033,
+    "lon": 121.5654,
+    "date": "1924",
+    "group": "города",
+    "order": 6,
+    "description": "Китайская Республика (Тайвань)\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-007",
+    "name": "Москва",
+    "lat": 55.7558,
+    "lon": 37.6173,
+    "date": "1957",
+    "group": "города",
+    "order": 7,
+    "description": "Российская Федерация\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-008",
+    "name": "Нью-Дели",
+    "lat": 28.6139,
+    "lon": 77.209,
+    "date": "1959",
+    "group": "города",
+    "order": 8,
+    "description": "Республика Индия\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-009",
+    "name": "Брюссель",
+    "lat": 50.8503,
+    "lon": 4.3517,
+    "date": "1998",
+    "group": "города",
+    "order": 9,
+    "description": "Королевство Бельгия\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-010",
+    "name": "Берлин",
+    "lat": 52.52,
+    "lon": 13.405,
+    "date": "",
+    "group": "города",
+    "order": 10,
+    "description": "Федеративная Республика Германия\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-011",
+    "name": "Каир",
+    "lat": 30.0444,
+    "lon": 31.2357,
+    "date": "",
+    "group": "города",
+    "order": 11,
+    "description": "Арабская Республика Египет\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-012",
+    "name": "Иерусалим",
+    "lat": 31.7683,
+    "lon": 35.2137,
+    "date": "",
+    "group": "города",
+    "order": 12,
+    "description": "Государство Израиль\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  },
+  {
+    "id": "g-013",
+    "name": "Бангкок",
+    "lat": 13.7563,
+    "lon": 100.5018,
+    "date": "",
+    "group": "города",
+    "order": 13,
+    "description": "Королевство Таиланд\nhttps://macs.mainichi.co.jp/data/data/pdf/MainichiNOW2026.pdf?260401"
+  }
+];
+
+
+// === STATE ===
+var map = null;
+var markers = [];
+var lines = [];
+var renderedIds = new Set();
+var steps = [];
+var currentStep = 0;
+var isPlaying = false;
+var playTimer = null;
+var isDragging = false;
+var baseZoom = null,
+currentMode = 'event';
+
+// === COLORS ===
+var groupColors = {
+  'города': '#e94560', 'реки': '#5dade2', 'горы': '#27ae60',
+  'гостиницы': '#f39c12', 'станции': '#9b59b6', 'default': '#5dade2'
+};
+function getColor(group) {
+  if (groupColors[group]) return groupColors[group];
+  var hue = (group.split('').reduce(function(a,b){return a+b.charCodeAt(0)},0) * 137) % 360;
+  groupColors[group] = 'hsl('+hue+',70%,60%)';
+  return groupColors[group];
+}
+
+// === DATE UTILS ===
+function parseDate(s) {
+  if (!s) return null;
+  if (/^\d{4}$/.test(s)) return new Date(parseInt(s),0,1);
+  if (/^\d{4}-\d{2}$/.test(s)) return new Date(s+'-01');
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s+'T00:00:00');
+  var d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+function formatDate(d) {
+  if (!d) return '—';
+  var dd = String(d.getDate()).padStart(2,'0');
+  var mm = String(d.getMonth()+1).padStart(2,'0');
+  var yyyy = d.getFullYear();
+  var hh = String(d.getHours()).padStart(2,'0');
+  var mi = String(d.getMinutes()).padStart(2,'0');
+  if (hh==='00' && mi==='00') return dd+'.'+mm+'.'+yyyy;
+  return dd+'.'+mm+'.'+yyyy+' '+hh+':'+mi;
+}
+function formatTickLabel(d, rangeYears) {
+  if (rangeYears < 1) return d.toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
+  if (rangeYears < 10) return d.toLocaleDateString('ru-RU',{year:'numeric',month:'short'});
+  return String(d.getFullYear());
+}
+
+// === INIT MAP ===
+function initMap() {
+  if (map) return;
+  map = L.map('map', {
+    minZoom: 1,
+    maxZoom: 14,
+    attributionControl: false
+  }).setView([55,80], 4);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
+    attribution: '', subdomains: 'abcd', maxZoom: 14
+  }).addTo(map);
+  map.on('moveend', function(){
+    // можно обновлять координаты центра, если нужно
+  });
+}
+
+// === BUILD ===
+function build() {
+  initMap();
+  resetMap();
+  renderedIds.clear();
+  steps = [];
+  currentStep = 0;
+
+  var mode = document.getElementById('mode-select').value;
+  var dated = DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  var undated = DATA.filter(function(p){return !p.date});
+
+  if (mode === 'event') {
+    var sorted = dated.sort(function(a,b){return a.parsedDate-b.parsedDate})
+      .concat(undated.sort(function(a,b){return (a.order||0)-(b.order||0)}));
+    for (var i=1;i<=sorted.length;i++) steps.push(i/sorted.length);
+  } else {
+    for (var i=0;i<=40;i++) steps.push(i/40);
+  }
+
+  // Fit bounds
+  var pts = DATA.filter(function(p){return p.lat&&p.lon});
+  if (pts.length > 0) {
+    var bounds = pts.map(function(p){return [p.lat,p.lon]});
+    map.fitBounds(bounds,{padding:[50,50]});
+    baseZoom = map.getZoom();
+  }
+
+  // Timeline
+  buildTimeline(dated);
+  // Table
+  renderTable();
+  // Legend
+  buildLegend();
+  // Initial render
+  renderAtProgress(0, true);
+
+  document.getElementById('play-btn').disabled = false;
+}
+
+// === RENDER AT PROGRESS ===
+function renderAtProgress(progress, forceFull, centerMode) {
+  progress = Math.max(0,Math.min(1,progress));
+  var mode = document.getElementById('mode-select').value;
+  var visible = getVisible(progress, mode);
+  var fresh = visible.filter(function(p){return !renderedIds.has(p.id)});
+
+  if (forceFull) {
+    resetMap();
+    renderedIds.clear();
+    visible.forEach(function(p){addPoint(p,false)});
+    addLines(visible);
+    if (visible.length>0) {
+      if (centerMode === 'keep') {
+        // Вид камеры не трогаем — только перерисовываем точки
+      } else if (centerMode === 'pan') {
+        panToCurrentPoint(visible, mode);
+      } else {
+        centerOnAll(visible);
+      }
+    }
+  } else if (fresh.length > 0) {
+    fresh.forEach(function(p){addPoint(p,true)});
+    addLines(visible);
+    var prev = visible.length-fresh.length-1 >= 0 ? visible[visible.length-fresh.length-1] : null;
+    var curr = fresh[fresh.length-1];
+    centerOnPoints(prev, curr);
+  }
+
+  visible.forEach(function(p){renderedIds.add(p.id)});
+  updateTimelineUI(progress, visible, mode);
+}
+
+function getVisible(progress, mode) {
+  var dated = DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  var undated = DATA.filter(function(p){return !p.date});
+
+  if (mode === 'event') {
+    var sorted = dated.sort(function(a,b){return a.parsedDate-b.parsedDate})
+      .concat(undated.sort(function(a,b){return (a.order||0)-(b.order||0)}));
+    var count = Math.max(1,Math.round(progress*sorted.length));
+    return sorted.slice(0,count);
+  }
+  // time mode
+  if (dated.length===0) return [];
+  var minD = new Date(Math.min.apply(null,dated.map(function(p){return p.parsedDate})));
+  var maxD = new Date(Math.max.apply(null,dated.map(function(p){return p.parsedDate})));
+  var range = maxD-minD;
+  var curDate = new Date(minD.getTime()+range*progress);
+  var vis = dated.filter(function(p){return p.parsedDate<=curDate});
+  if (progress>=0.999) vis = vis.concat(undated);
+  return vis;
+}
+
+// === POINTS & LINES ===
+function addPoint(point, isFresh) {
+  var color = getColor(point.group||'default');
+  var cls = 'marker-icon'+(isFresh?' marker-fresh':'');
+  var m = L.marker([point.lat,point.lon],{
+    icon: L.divIcon({
+      html:'<div class="'+cls+'" style="background:'+color+';width:24px;height:24px;">'+(point.order||'')+'</div>',
+      iconSize:[24,24], iconAnchor:[12,12], popupAnchor:[0,-14], className:''
+    })
+  }).addTo(map);
+  var popup = '<b>'+(point.order||'')+'. '+point.name+'</b>';
+  if (point.date) popup += '<br>📅 '+formatDate(parseDate(point.date));
+  if (point.description) popup += '<br>'+point.description;
+  m.bindPopup(popup,{closeButton:false});
+  if (isFresh) m.openPopup();
+  m._pid = point.id;
+  markers.push(m);
+}
+
+function addLines(points) {
+  var dated = points.filter(function(p){return p.date}).sort(function(a,b){
+    if (a.parsedDate && b.parsedDate && a.parsedDate.getTime() !== b.parsedDate.getTime()) return a.parsedDate - b.parsedDate;
+    return (a.order||0)-(b.order||0);
+  });
+  if (dated.length<2) return;
+  for (var i=1;i<dated.length;i++) {
+    var key = dated[i-1].id+'-'+dated[i].id;
+    if (renderedIds.has('line-'+key)) continue;
+    var line = L.polyline(
+      [[dated[i-1].lat,dated[i-1].lon],[dated[i].lat,dated[i].lon]],
+      {color:'#e94560',weight:2.5,opacity:0.7,dashArray:'10,8'}
+    ).addTo(map);
+    lines.push(line);
+    renderedIds.add('line-'+key);
+  }
+}
+
+function resetMap() {
+  markers.forEach(function(m){map.removeLayer(m)});
+  lines.forEach(function(l){map.removeLayer(l)});
+  markers=[]; lines=[];
+}
+
+// === CENTERING (SMART ZOOM) ===
+function centerOnPoints(prev, curr) {
+  if (!curr||!map) return;
+  var target = L.latLng(curr.lat,curr.lon);
+  if (map.getBounds().contains(target)) return;
+  var maxZ = baseZoom!==null ? Math.min(baseZoom+3,18) : 16;
+  if (map.getZoom()>maxZ) map.setZoom(maxZ,{animate:true});
+  map.panTo(target,{animate:true,duration:0.8});
+}
+function centerOnAll(pts) {
+  if (!pts||pts.length===0) return;
+  var bounds = pts.map(function(p){return [p.lat,p.lon]});
+  map.fitBounds(bounds,{padding:[50,50],duration:0.8});
+  baseZoom = map.getZoom();
+}
+
+function panToCurrentPoint(visible, mode) {
+  if (!visible || visible.length === 0 || !map) return;
+  // Цель: События — последняя видимая точка, Время — самая свежая по дате
+  var target;
+  if (mode === 'event') {
+    target = visible[visible.length - 1];
+  } else {
+    target = null;
+    for (var i = 0; i < visible.length; i++) {
+      var p = visible[i];
+      if (p.parsedDate && (!target || p.parsedDate > target.parsedDate)) {
+        target = p;
+      }
+    }
+    if (!target) target = visible[visible.length - 1];
+  }
+  if (!target || !target.lat || !target.lon) return;
+  var m = markers.find(function(mk) { return mk._pid === target.id; });
+  var targetLL = L.latLng(target.lat, target.lon);
+  // Уже на месте — просто открываем попап
+  if (map.getCenter().distanceTo(targetLL) < 1) {
+    if (m) m.openPopup();
+    return;
+  }
+  // Пан без смены зума, попап — по прибытии
+  map.once('moveend', function() {
+    if (m && m._map) m.openPopup();
+  });
+  map.panTo(targetLL, {animate: true, duration: 0.5});
+}
+
+function getCurrentAnchorPoint(visible, mode) {
+  if (!visible || visible.length === 0) return null;
+  if (mode === 'event') {
+    return visible[visible.length - 1];
+  }
+  // Время: самая свежая по дате
+  var best = null;
+  for (var i = 0; i < visible.length; i++) {
+    var p = visible[i];
+    if (p.parsedDate && (!best || p.parsedDate > best.parsedDate)) {
+      best = p;
+    }
+  }
+  return best || visible[visible.length - 1];
+}
+function findProgressByPointId(pointId, mode) {
+  var dated = DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  var undated = DATA.filter(function(p){return !p.date});
+  var all = dated.sort(function(a,b){return a.parsedDate-b.parsedDate})
+    .concat(undated.sort(function(a,b){return (a.order||0)-(b.order||0)}));
+  if (all.length === 0) return { progress: 0, stepIndex: 0 };
+  var idx = -1;
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].id === pointId) { idx = i; break; }
+  }
+  if (idx === -1) idx = all.length - 1;
+  if (mode === 'event') {
+    return { progress: (idx + 1) / all.length, stepIndex: idx };
+  } else {
+    var point = all[idx];
+    var pos;
+    if (point.parsedDate && dated.length > 0) {
+      var dates = dated.map(function(p){return p.parsedDate});
+      var minD = new Date(Math.min.apply(null,dates));
+      var maxD = new Date(Math.max.apply(null,dates));
+      var range = maxD - minD;
+      pos = range === 0 ? 0 : (point.parsedDate - minD) / range;
+    } else {
+      pos = 1;
+    }
+    return { progress: pos, stepIndex: Math.max(0, Math.min(40, Math.round(pos * 40))) };
+  }
+}
+
+// === TIMELINE ===
+function buildTimeline(dated) {
+  var ticksEl = document.getElementById('tl-ticks');
+  var eventsEl = document.getElementById('tl-events');
+  ticksEl.innerHTML=''; eventsEl.innerHTML='';
+  if (dated.length===0) return;
+
+  var dates = dated.map(function(p){return p.parsedDate});
+  var minD = new Date(Math.min.apply(null,dates));
+  var maxD = new Date(Math.max.apply(null,dates));
+  var rangeYears = (maxD-minD)/(1000*60*60*24*365);
+
+  // Ticks
+  for (var i=0;i<=10;i++) {
+    var prog = i/10;
+    var d = new Date(minD.getTime()+(maxD-minD)*prog);
+    var el = document.createElement('div');
+    el.className='tick'; el.style.left=(prog*100)+'%';
+    el.innerHTML='<div class="tick-line"></div><div class="tick-label">'+formatTickLabel(d,rangeYears)+'</div>';
+    ticksEl.appendChild(el);
+  }
+
+  // Events
+  dated.forEach(function(p){
+    var prog = (p.parsedDate-minD)/(maxD-minD||1);
+    var dot = document.createElement('div');
+    dot.className='event-dot'; dot.style.left=(prog*100)+'%';
+    dot.title=(p.order||'')+'. '+p.name+' — '+formatDate(p.parsedDate);
+    dot.onclick=function(e){
+      e.stopPropagation();
+      if (isPlaying) pause();
+      goToProgress(prog);
+    };
+    eventsEl.appendChild(dot);
+  });
+
+  document.getElementById('tl-range').textContent=formatDate(minD)+' — '+formatDate(maxD);
+}
+
+function updateTimelineUI(progress, visible, mode) {
+  var vp = progress;
+  if (mode==='event' && visible.length>0) {
+    var last = visible[visible.length-1];
+    if (last.date) {
+      var dated = DATA.filter(function(p){return p.date}).map(function(p){
+        return Object.assign({},p,{parsedDate:parseDate(p.date)});
+      }).filter(function(p){return p.parsedDate});
+      if (dated.length>0) {
+        var minD=new Date(Math.min.apply(null,dated.map(function(p){return p.parsedDate})));
+        var maxD=new Date(Math.max.apply(null,dated.map(function(p){return p.parsedDate})));
+        vp = (last.parsedDate-minD)/(maxD-minD||1);
+      }
+    }
+  }
+  document.getElementById('tl-fill').style.width=(vp*100)+'%';
+  document.getElementById('tl-thumb').style.left=(vp*100)+'%';
+
+  // Date display
+  var dated = DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  if (dated.length>0) {
+    var minD=new Date(Math.min.apply(null,dated.map(function(p){return p.parsedDate})));
+    var maxD=new Date(Math.max.apply(null,dated.map(function(p){return p.parsedDate})));
+    var curDate=new Date(minD.getTime()+(maxD-minD)*progress);
+    document.getElementById('tl-date').textContent=formatDate(curDate);
+  }
+
+  // Highlight event dots
+  document.querySelectorAll('.event-dot').forEach(function(el){
+    var ep=parseFloat(el.style.left)/100;
+    el.classList.toggle('active',ep<=vp);
+  });
+}
+
+// === TABLE ===
+function renderTable() {
+  var tbody = document.getElementById('table-body');
+  tbody.innerHTML = DATA.map(function(p,i){
+    var dateStr = p.date ? formatDate(parseDate(p.date)) : '';
+    return '<tr data-id="'+p.id+'" onclick="onRowClick(\''+p.id+'\')">' +
+      '<td>'+(p.order||i+1)+'</td>' +
+      '<td>'+p.name+'</td>' +
+      '<td>'+dateStr+'</td>' +
+      '<td>'+(p.description||'')+'</td></tr>';
+  }).join('');
+}
+function highlightRow(id) {
+  document.querySelectorAll('#table-body tr').forEach(function(tr){
+    tr.classList.toggle('active',tr.dataset.id===id);
+  });
+}
+function onRowClick(id) {
+  var p = DATA.find(function(x){return x.id===id});
+  if (p && p.lat && p.lon) {
+    map.panTo([p.lat,p.lon]);
+    var m = markers.find(function(mk){
+      var ll=mk.getLatLng();
+      return Math.abs(ll.lat-p.lat)<0.001 && Math.abs(ll.lng-p.lon)<0.001;
+    });
+    if (m) m.openPopup();
+  }
+  highlightRow(id);
+}
+
+// === LEGEND ===
+function buildLegend() {
+  var groups = {};
+  DATA.forEach(function(p){if(p.group)groups[p.group]=true});
+  var keys = Object.keys(groups);
+  var el = document.getElementById('legend');
+  if (keys.length<=1){el.style.display='none';return;}
+  el.innerHTML='<div style="font-weight:bold;margin-bottom:6px;color:var(--va-accent)">Группы</div>';
+  keys.forEach(function(g){
+    el.innerHTML+='<div class="legend-item"><div class="legend-dot" style="background:'+getColor(g)+'"></div><span>'+g+'</span></div>';
+  });
+  el.style.display='block';
+}
+
+// === PLAYBACK ===
+function startPlay() {
+  if (isPlaying||steps.length===0) return;
+  isPlaying=true;
+  document.getElementById('play-btn').textContent='⏸ Пауза';
+  tick();
+}
+function pause() {
+  isPlaying=false;
+  clearTimeout(playTimer);
+  document.getElementById('play-btn').textContent='▶ Дальше';
+}
+function stop() {
+  isPlaying=false;
+  clearTimeout(playTimer);
+  document.getElementById('play-btn').textContent='▶ Играть';
+}
+function togglePlay() {
+  if (isPlaying) pause(); else startPlay();
+}
+function tick() {
+  if (!isPlaying) return;
+  var progress = steps[Math.min(currentStep,steps.length-1)];
+  renderAtProgress(progress,false);
+  highlightActiveRow(progress);
+  currentStep++;
+  if (currentStep>=steps.length){stop();return;}
+  var delay = parseFloat(document.getElementById('speed-input').value)*1000||2000;
+  var mode = document.getElementById('mode-select').value;
+  if (mode === 'time') delay = delay;
+  playTimer = setTimeout(tick,delay);
+}
+function highlightActiveRow(progress) {
+  var mode = document.getElementById('mode-select').value;
+  var visible = getVisible(progress,mode);
+  if (visible.length>0) highlightRow(visible[visible.length-1].id);
+}
+function resetAll() {
+  stop();
+  resetMap();
+  renderedIds.clear();
+  currentStep=0;
+  document.getElementById('tl-fill').style.width='0%';
+  document.getElementById('tl-thumb').style.left='0%';
+  document.getElementById('tl-date').textContent='—';
+  renderAtProgress(0,true);
+}
+
+function goToProgress(progress) {
+  var mode = document.getElementById('mode-select').value;
+  // Датированные точки с распарсенными датами
+  var dated = DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  var undated = DATA.filter(function(p){return !p.date});
+  // Порядок как в режиме События: датированные по хронологии, затем бездатные по order
+  var all = dated.sort(function(a,b){return a.parsedDate-b.parsedDate})
+    .concat(undated.sort(function(a,b){return (a.order||0)-(b.order||0)}));
+  if (all.length === 0) {
+    renderAtProgress(0, true);
+    return;
+  }
+  // Диапазон дат: перевод даты в позицию на шкале
+  var dates = dated.map(function(p){return p.parsedDate});
+  var minD = dates.length ? new Date(Math.min.apply(null,dates)) : null;
+  var maxD = dates.length ? new Date(Math.max.apply(null,dates)) : null;
+  function datePos(p) {
+    if (!p.parsedDate || !minD || !maxD) return 1;
+    var range = maxD - minD;
+    return range === 0 ? 0 : (p.parsedDate - minD) / range;
+  }
+  // Ближайший кандидат: точки (по дате), во Времени добавляются четверть-шаги i/40
+  var best = null, minDiff = Infinity;
+  all.forEach(function(p, idx){
+    var d = Math.abs(datePos(p) - progress);
+    if (d < minDiff) { minDiff = d; best = { pos: datePos(p), index: idx }; }
+  });
+  if (mode === 'time') {
+    for (var i = 0; i <= 40; i++) {
+      var d2 = Math.abs(i/40 - progress);
+      if (d2 < minDiff) { minDiff = d2; best = { pos: i/40, index: -1 }; }
+    }
+  }
+  if (mode === 'event') {
+    // События: сажаем на точку, шаг = индекс этой точки
+    currentStep = best.index;
+    var stepProgress = (best.index + 1) / all.length;
+    renderAtProgress(stepProgress, true, 'pan');
+    highlightActiveRow(stepProgress);
+  } else {
+    // Время: сажаем на ближайшую позицию (точка или четверть-тик)
+    renderAtProgress(best.pos, true, 'pan');
+    currentStep = Math.max(0, Math.min(40, Math.round(best.pos * 40)));
+    highlightActiveRow(best.pos);
+  }
+}
+
+// === TIMELINE DRAG ===
+document.getElementById('tl-thumb').addEventListener('mousedown',function(e){
+  isDragging=true;
+  if(isPlaying)pause();
+  e.preventDefault();
+});
+document.addEventListener('mousemove',function(e){
+  if(!isDragging)return;
+  var track=document.getElementById('tl-track');
+  var rect=track.getBoundingClientRect();
+  var x=Math.max(0,Math.min(rect.width,e.clientX-rect.left));
+  var prog=x/rect.width;
+  document.getElementById('tl-fill').style.width=(prog*100)+'%';
+  document.getElementById('tl-thumb').style.left=(prog*100)+'%';
+});
+document.addEventListener('mouseup',function(){
+  if(isDragging){
+    isDragging=false;
+    var thumb=document.getElementById('tl-thumb');
+    var prog=parseFloat(thumb.style.left)/100;
+    goToProgress(prog);
+  }
+});
+document.getElementById('tl-track').addEventListener('click',function(e){
+  if(isDragging)return;
+  if(isPlaying)pause();
+  var rect=this.getBoundingClientRect();
+  var prog=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+  goToProgress(prog);
+});
+
+// === MODE/SPEED CHANGE ===
+document.getElementById('mode-select').addEventListener('change',function(){
+  var oldMode = currentMode;
+  var newMode = this.value;
+  if (oldMode === newMode) return;
+  stop();
+  // Запоминаем точку-якорь в старом режиме
+  var oldProgress = steps[currentStep] || 0;
+  var visible = getVisible(oldProgress, oldMode);
+  var anchor = getCurrentAnchorPoint(visible, oldMode);
+  var anchorId = anchor ? anchor.id : null;
+  // Переключаем режим и пересобираем шаги
+  currentMode = newMode;
+  var mode = newMode;
+  var dated=DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  var undated=DATA.filter(function(p){return !p.date});
+  steps=[];
+  if(mode==='event'){
+    var sorted=dated.sort(function(a,b){return a.parsedDate-b.parsedDate})
+      .concat(undated.sort(function(a,b){return (a.order||0)-(b.order||0)}));
+    for(var i=1;i<=sorted.length;i++)steps.push(i/sorted.length);
+  }else{
+    for(var i=0;i<=40;i++)steps.push(i/40);
+  }
+  // Находим новую позицию для якоря в новом режиме
+  var newPos;
+  if (anchorId) {
+    newPos = findProgressByPointId(anchorId, newMode);
+  } else {
+    newPos = { progress: 0, stepIndex: 0 };
+  }
+  currentStep = newPos.stepIndex;
+  renderAtProgress(newPos.progress, true, 'keep');
+  highlightActiveRow(newPos.progress);
+});
+
+// === ZOOM PANEL ===
+document.getElementById('max-zoom-select').addEventListener('change', function() {
+  var z = parseInt(this.value, 10);
+  if (!map) return;
+  map.setMaxZoom(z);
+  map.eachLayer(function(layer) {
+    if (layer.options && layer.options.maxZoom !== undefined) {
+      layer.options.maxZoom = z;
+    }
+  });
+  if (map.getZoom() > z) {
+    map.setZoom(z);
+  }
+});
+
+// === BINDINGS ===
+document.getElementById('play-btn').addEventListener('click',togglePlay);
+document.getElementById('reset-btn').addEventListener('click',resetAll);
+
+// === START ===
+build();
+</script>
+</body>
+</html>
