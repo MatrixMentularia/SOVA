@@ -4,6 +4,10 @@
     <meta charset="utf-8">
     <meta name="author" content="Марина Шилова">
     <meta name="contact" content="marvsh@yandex.ru">
+    <meta name="doi" content="10.5281/zenodo.22125079">
+    <meta name="citation_doi" content="10.5281/zenodo.22125079">
+    <meta name="github" content="https://github.com/MatrixMentularia/SOVA">
+    <link rel="canonical" href="https://github.com/MatrixMentularia/SOVA">
     <title>СОВА — Текст и Карта</title>
     <!--
     SPDX-License-Identifier: AGPL-3.0-or-later
@@ -979,6 +983,7 @@ input[type="file"] { display: none; }
     <h2 style="color:#4a4a4a; margin-bottom:8px; font-size:20px;">СОВА — Текст и Карта</h2>
     <p style="color:#666; font-size:12px; line-height:1.5; margin-bottom:14px;">
       <b>Версия:</b> 0.4<br>
+      <a href="https://doi.org/10.5281/zenodo.22042044"><img src="https://zenodo.org/badge/1339910338.svg" alt="DOI"></a><br>
       <b>Автор:</b> Марина Шилова<br>
       <b>Соавтор:</b> Дмитрий Белкин<br>
       <b>Контакт:</b> <a href="mailto:marvsh@yandex.ru" style="color:#c9a96e;">marvsh@yandex.ru</a>
@@ -990,9 +995,14 @@ input[type="file"] { display: none; }
       не отправляет данные на внешние серверы. Интернет нужен только для подгрузки картографической подложки.
     </p>
 
+    <p style="color:#555; font-size:13px; line-height:1.6; margin-bottom:12px;">
+      <b>Цитирование</b> при использовании в исследованиях и публикациях:<br>
+      <i>Shilova, M. (2026). SOVA [Computer software]. URL: <a href="https://doi.org/10.5281/zenodo.22042044" target="_blank" rel="noopener" style="color:#c9a96e;">https://doi.org/10.5281/zenodo.22042044</a></i>
+    </p>
+
     <p style="background:#fdf6e3; border-left:3px solid #c9a96e; padding:10px 12px; margin-bottom:14px; font-size:13px; line-height:1.5;">
       📘 <b>Подробный туториал, примеры файлов, исходный код, релизы и документация</b> лежат в репозитории проекта:<br>
-      <a href="https://github.com/MartixMentularia/SOVA" target="_blank" rel="noopener" style="color:#c9a96e; font-weight:600;">MartixMentularia/SOVA</a>
+      <a href="https://github.com/MatrixMentularia/SOVA" target="_blank" rel="noopener" style="color:#c9a96e; font-weight:600;">MatrixMentularia/SOVA</a>
     </p>
 
     <h3 style="color:#4a4a4a; font-size:13px; margin-bottom:6px;">Ресурсы</h3>
@@ -1083,6 +1093,7 @@ input[type="file"] { display: none; }
     <span style="color:#fff;">С</span><span style="color:#fff;">О</span><span style="color:#c9a96e;">В</span><span style="color:#c9a96e;">А</span>
     <span style="font-size:15px; color:#fff; font-weight:450; margin-left:6px;">— Текст и Карта</span>
   </h1>
+  <a href="https://doi.org/10.5281/zenodo.22042044"><img src="https://zenodo.org/badge/1339910338.svg" alt="DOI"></a>
   <div style="margin-right:auto; font-size:10px; color:#aaa; padding-left:12px;">
     © Марина Шилова
   </div>
@@ -3498,7 +3509,7 @@ const MAP_TEMPLATE = `
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>СОВА — Экспорт Карты (Прототип)</title>
+<title>СОВА — Экспорт Карты</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   :root {
@@ -3903,8 +3914,8 @@ const MAP_TEMPLATE = `
   </div>
 
   <div class="footer">
-    Создано в <b>СОВА</b> — Текст и Карта<br>
-    © Марина Шилова | <a href="mailto:marvsh@yandex.ru">marvsh@yandex.ru</a>
+    Создано в <b>СОВА</b> © Марина Шилова | <a href="mailto:marvsh@yandex.ru">marvsh@yandex.ru</a>
+    <a href="https://doi.org/10.5281/zenodo.22042044"><img src="https://zenodo.org/badge/1339910338.svg" alt="DOI"></a>
   </div>
 </div>
 
@@ -4771,7 +4782,7 @@ const SOVA_GUIDE_PROMPT = `СКОПИРУЙТЕ И ВСТАВЬТЕ ПРОМПТ
 === КОНТАКТЫ ===
 
 - Репозиторий: https://github.com/MatrixMentularia/SOVA
-- DOI: [DOI будет здесь после подключения Zenodo]
+- DOI: https://doi.org/10.5281/zenodo.22042044
 - Сообщество ВКонтакте: "Гуманитарные ГИС" (https://vk.ru/humgis)
 - Канал в Telegram: "Гуманитарный ГИС" (https://t.me/humgis)
 - Почта автора: marvsh@yandex.ru
