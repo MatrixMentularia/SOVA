@@ -1,16 +1,17 @@
-cff-version: 1.0
+cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 title: "СОВА"
 type: software
 authors:
   - family-names: "Шилова"
-    given-names: "Марина Владимировна"
+    given-names: "Марина"
     affiliation: "Tomsk State University"
     orcid: "https://orcid.org/0009-0001-1660-5608"
 repository-code: "https://github.com/MatrixMentularia/SOVA"
 license: AGPL-3.0-or-later
-version: 0.4
-date-released: 2026-08-21
+version: 0.4.1
+date-released: 2026-08-27
+doi: 10.5281/zenodo.22125079
 keywords:
   - СОВА
   - SOVA
