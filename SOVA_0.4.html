@@ -1247,8 +1247,7 @@ input[type="file"] { display: none; }
           <div id="va-center-cross"></div>
           <div class="map-attribution">
             <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a> |
-            © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a> |
-            <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>
+            © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors
           </div>
           <div class="va-legend" id="va-legend" style="display:none;"></div>
         </div>
@@ -2735,9 +2734,9 @@ function getVaGroupColor(group) {
 function initVaMap() {
   if (vaMap) return;
   vaMap = L.map('va-map', { attributionControl: false }).setView([55, 95], 5);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-    attribution: '',
-    subdomains: 'abcd',
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+    subdomains: 'abc',
     maxZoom: 17
   }).addTo(vaMap);
   // Обновляем координаты центра при движении карты
@@ -3926,8 +3925,7 @@ const MAP_TEMPLATE = `
     <div id="map"></div>
     <div class="map-attribution">
       <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a> |
-      © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a> |
-      <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>
+      © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors
     </div>
     <div class="map-control-panel" id="zoom-panel">
       <label for="max-zoom-select">Макс. зум</label>
@@ -4019,8 +4017,9 @@ function initMap() {
     maxZoom: 14,
     attributionControl: false
   }).setView([55,80], 4);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{
-    attribution: '', subdomains: 'abcd', maxZoom: 14
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors',
+    subdomains: 'abc', maxZoom: 14
   }).addTo(map);
   map.on('moveend', function(){
     // можно обновлять координаты центра, если нужно
