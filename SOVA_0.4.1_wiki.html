@@ -1,0 +1,5823 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="author" content="Марина Шилова">
+    <meta name="contact" content="marvsh@yandex.ru">
+    <meta name="doi" content="10.5281/zenodo.22125079">
+    <meta name="citation_doi" content="10.5281/zenodo.22125079">
+    <meta name="github" content="https://github.com/MatrixMentularia/SOVA">
+    <link rel="canonical" href="https://github.com/MatrixMentularia/SOVA">
+    <title>СОВА — Текст и Карта</title>
+    <!--
+    SPDX-License-Identifier: AGPL-3.0-or-later
+    Copyright © 2026 Марина Шилова. Соавтор Дмитрий Белкин.
+    -->
+    <!--
+      СОВА v0.4 — Объединённая версия
+      Текстовая Обработка (СО) + Геовизуализация (ВА)
+
+      Оглавление блоков:
+      01 META        — шапка
+      02 CONFIG      — настройки
+      03 STYLES      — CSS
+      04 LAYOUT      — HTML-скелет
+      05 STATE       — переменные состояния
+      06 UTILS       — утилиты
+      07 DATA        — модель данных, трансформации, синхронизация
+      08 SO_TEXT     — рендеринг текста с подсветкой
+      09 SO_TABLE    — рендеринг таблицы
+      10 SO_EXPORT   — экспорт СО
+      11 VA_MAP      — карта Leaflet
+      12 VA_TIMELINE — таймлайн
+      13 VA_ANIMATION — анимация
+      14 VA_EXPORT   — экспорт ВА
+      15 AI_PROMPTS  — промпты для ИИ (заглушка)
+      16 INIT        — инициализация
+    -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</head>
+
+<!-- ============================================ -->
+<!-- БЛОК 02: CONFIG                              -->
+<!-- ============================================ -->
+<script>
+const CONFIG = {
+  highlightColor: '#ffe082',
+  highlightActive: '#ff8a65',
+  fontSize: '15px',
+  lineHeight: '1.7',
+  syncScroll: true,
+  panelSplit: '60%',
+  defaultTab: 'so',
+  vaDefaultZoom: 5,
+  vaDefaultSpeed: 2,
+  vaMinSpeed: 0.5,
+  vaMaxSpeed: 10,
+  strictFileNames: false,          // отключить проверки имён файлов
+  longTextThreshold: 7000,         //порог для модалки
+  copyButtonThreshold: 80
+};
+</script>
+
+<!-- ============================================ -->
+<!-- БЛОК 03: STYLES                              -->
+<!-- ============================================ -->
+<style>
+/* Кнопки промптов с переносом текста */
+#prompts-modal .prompt-btn {
+  white-space: normal;
+  line-height: 1.3;
+  min-height: 48px;
+  padding: 8px 12px;
+}
+/* Контекстное меню для таблицы */
+#table-context-menu {
+  position: fixed;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  z-index: 10001;
+  display: none;
+  font-size: 12px;
+  min-width: 160px;
+}
+#table-context-menu .menu-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  color: #333;
+}
+#table-context-menu .menu-item:hover {
+  background: #f0f0ea;
+}
+#table-context-menu .menu-item.disabled {
+  color: #999;
+  cursor: not-allowed;
+}
+#table-context-menu .menu-item.disabled:hover {
+  background: transparent;
+}
+
+/* Контекстное меню для текста */
+#text-context-menu {
+  position: fixed;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  z-index: 10001;
+  display: none;
+  font-size: 12px;
+  min-width: 160px;
+}
+#text-context-menu .menu-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  color: #333;
+}
+#text-context-menu .menu-item:hover {
+  background: #f0f0ea;
+}
+
+/* Выпадающее меню скачивания в шапке */
+#download-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 6px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  z-index: 10001;
+  font-size: 12px;
+  min-width: 220px;
+}
+#download-menu.open {
+  display: block;
+}
+#download-menu .menu-item {
+  padding: 8px 14px;
+  cursor: pointer;
+  color: #333;
+  white-space: nowrap;
+}
+#download-menu .menu-item:hover {
+  background: #f0f0ea;
+}
+
+/* Подсветка ячейки в режиме ожидания привязки */
+#toponym-table tr.rebind-pending {
+  background: #fff3e0 !important;
+  outline: 2px dashed #ff8a65;
+}
+#toponym-table tr.rebind-pending td {
+  background: #fff3e0 !important;
+}
+
+/* Индикатор режима привязки в тексте */
+#text-content.rebind-mode {
+  cursor: crosshair !important;
+  background: #fff8e1 !important;
+}
+
+/* Пустые ячейки start/end */
+#toponym-table td.empty-pos {
+  color: #bbb;
+  font-style: italic;
+}
+/* --- 03.01 VARS --- */
+:root {
+  --so-bg: #f5f5f0;
+  --so-panel-bg: #fafaf5;
+  --so-header-bg: #4a4a4a;
+  --so-accent: #c9a96e;
+  --so-text: #333;
+  --so-muted: #666;
+  --so-border: #ddd;
+  --so-table-header: #e0e0d8;
+  --va-bg: #f8f9fa;
+  --va-panel-bg: #ffffff;
+  --va-header-bg: #e9ecef;
+  --va-accent: #e94560;
+  --va-accent-light: #ff6b6b;
+  --va-blue: #5dade2;
+  --va-blue-dark: #1a5276;
+  --va-text: #333;
+  --va-muted: #6c757d;
+  --va-border: #dee2e6;
+}
+
+/* --- 03.02 GLOBAL --- */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', Georgia, serif;
+  font-size: 14px;
+  color: var(--so-text);
+  background: var(--so-bg);
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* --- 03.03 HEADER --- */
+#header {
+  height: 48px;
+  background: var(--so-header-bg);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 8px;
+  flex-shrink: 0;
+}
+#header h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-right: auto;
+  letter-spacing: 1px;
+}
+#header h1 span { color: var(--so-accent); }
+
+.btn {
+  background: #666;
+  border: none;
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+.btn:hover { background: #888; }
+.btn.primary { background: var(--so-accent); color: #2a2a2a; }
+.btn.primary:hover { background: #b8985d; }
+.btn.active { background: #81c784; }
+.btn.tab-btn {
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 6px 16px;
+  font-size: 13px;
+}
+.btn.tab-btn.active {
+  background: transparent;
+  color: var(--so-accent);
+  border-bottom-color: var(--so-accent);
+}
+input[type="file"] { display: none; }
+
+/* --- 03.04 LAYOUT --- */
+#app { display: flex; flex-direction: column; height: calc(100vh - 48px); }
+#tab-content { flex: 1; overflow: hidden; position: relative; }
+.tab-panel { 
+  position: absolute; 
+  top: 0; left: 0; 
+  width: 100%; height: 100%; 
+  display: none; 
+}
+.tab-panel.active { display: flex; }
+
+#so-panel {
+  flex-direction: row;
+  overflow: hidden;  /* ← ДОБАВИТЬ */
+}
+#text-panel {
+  width: 55%;
+  display: flex;
+  flex-direction: column;
+  border-right: 2px solid var(--so-border);
+  background: var(--so-panel-bg);
+  min-height: 0;
+}
+#text-toolbar {
+  padding: 8px 16px;
+  background: #e8e8e0;
+  border-bottom: 1px solid #ccc;
+  font-size: 12px;
+  color: var(--so-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+#text-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 32px;
+  font-size: 15px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+#text-content .placeholder {
+  color: #999;
+  font-style: italic;
+  text-align: center;
+  margin-top: 40%;
+}
+
+#table-panel {
+  width: 45%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#va-panel { flex-direction: row; }
+
+#va-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#va-sidebar {
+  width: 340px;
+  height: 100%;
+  background: var(--va-panel-bg);
+  border-right: 1px solid var(--va-border);
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+#va-sidebar h2 {
+  font-size: 18px;
+  color: var(--va-accent);
+  margin-bottom: 4px;
+}
+#va-map-wrap {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+#va-map {
+  width: 100%;
+  height: 100%;
+}
+
+/* Крестик в истинном центре карты (точка, откуда берутся координаты центра) */
+#va-center-cross {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 750;
+}
+#va-center-cross::before,
+#va-center-cross::after {
+  content: '';
+  position: absolute;
+  background: rgba(233, 69, 96, 0.7);
+}
+#va-center-cross::before {
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 100%;
+  transform: translateX(-50%);
+}
+#va-center-cross::after {
+  top: 50%;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  transform: translateY(-50%);
+}
+
+/* --- 03.05 COMPONENTS --- */
+.modal-backdrop {
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0,0,0,0.5);
+  z-index: 10000;
+  align-items: center;
+  justify-content: center;
+}
+.modal-backdrop.show { display: flex; }
+.modal-box {
+  background: #fafaf5;
+  border-radius: 8px;
+  padding: 24px 32px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  position: relative;
+}
+.modal-close {
+  position: absolute;
+  top: 12px; right: 16px;
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  color: #666;
+}
+
+.toponym {
+  background: var(--highlightColor, #ffe082);
+  border-radius: 2px;
+  padding: 0 2px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 2px solid transparent;
+}
+.toponym:hover { background: #ffcc33; }
+.toponym.active {
+  background: var(--highlightActive, #ff8a65);
+  border-bottom-color: #d84315;
+}
+.toponym.rejected {
+  background: #ffcdd2;
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.toponym.confirmed {
+  border-bottom-color: #4caf50;
+}
+
+#toponym-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+#toponym-table th {
+  position: sticky;
+  top: 0;
+  background: var(--so-table-header);
+  padding: 6px 4px;
+  text-align: left;
+  font-weight: 600;
+  border-bottom: 2px solid #bbb;
+  white-space: nowrap;
+  font-size: 10px;
+}
+#toponym-table td {
+  padding: 4px;
+  border-bottom: 1px solid #eee;
+  vertical-align: top;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#toponym-table td.wrap {
+  white-space: normal;
+  max-width: 150px;
+}
+#toponym-table tr {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+#toponym-table tr:hover { background: #f5f5f0; }
+#toponym-table tr.active { background: #fff3e0; }
+#toponym-table tr.hidden { display: none; }
+#toponym-table td.editable {
+  background: #fafafa;
+  border: 1px dashed #ddd;
+}
+#toponym-table td.editable:focus {
+  outline: 2px solid var(--so-accent);
+  background: #fff;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #bbb; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #999; }
+
+.badge {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.badge-confirmed { background: #c8e6c9; color: #2e7d32; }
+.badge-suggested { background: #ffe0b2; color: #e65100; }
+.badge-rejected { background: #ffcdd2; color: #c62828; }
+
+.status-select {
+  font-size: 9px;
+  padding: 1px 4px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.va-section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--va-muted);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.va-file-btn {
+  display: block;
+  width: 100%;
+  padding: 12px;
+  background: #e9ecef;
+  border: 1px dashed var(--va-blue);
+  border-radius: 8px;
+  color: var(--va-blue-dark);
+  text-align: center;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.3s;
+}
+.va-file-btn:hover {
+  background: #dee2e6;
+  border-style: solid;
+}
+.va-action {
+  width: 100%;
+  padding: 14px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.va-action.primary { background: var(--va-accent); color: white; }
+.va-action.primary:hover { background: var(--va-accent-light); }
+.va-action:disabled { background: #ccc; cursor: not-allowed; }
+.va-action.secondary { background: var(--va-border); color: var(--va-muted); }
+
+.va-status {
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.va-status.ok { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+.va-status.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+.va-status.info { background: #e7f3ff; color: #004085; border: 1px solid #b8daff; }
+
+.va-textarea {
+  width: 100%;
+  height: 120px;
+  background: #fff;
+  border: 1px solid var(--va-border);
+  border-radius: 8px;
+  color: var(--va-text);
+  padding: 12px;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.va-settings {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.va-settings input, .va-settings select {
+  padding: 8px;
+  background: #fff;
+  border: 1px solid var(--va-border);
+  border-radius: 6px;
+  color: var(--va-text);
+  font-size: 12px;
+  width: 80px;
+}
+.va-settings label {
+  font-size: 11px;
+  color: var(--va-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.va-settings input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  margin-top: 8px;
+}
+
+.map-attribution {
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  font-size: 11px;
+  color: #999;
+  z-index: 500;
+  pointer-events: auto;
+  line-height: 1.4;
+  text-align: right;
+}
+.map-attribution a {
+  color: #999;
+  text-decoration: none;
+  border-bottom: 1px dotted #bbb;
+}
+.map-attribution a:hover {
+  color: var(--va-accent);
+  border-bottom-color: var(--va-accent);
+}
+
+.va-legend {
+  position: absolute;
+  bottom: 5px;
+  left: 5px;
+  background: rgba(255,255,255,0.95);
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--va-border);
+  font-size: 12px;
+  z-index: 500;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.va-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.va-legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid white;
+  box-shadow: 0 0 0 1px #ccc;
+}
+
+.va-popup .leaflet-popup-content-wrapper {
+  background: #fff;
+  color: var(--va-text);
+  border-radius: 8px;
+  border: 1px solid var(--va-accent);
+  font-size: 13px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+}
+.va-popup .leaflet-popup-tip {
+  background: #fff;
+}
+
+.va-marker-icon {
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  border: 2px solid #fff;
+}
+
+/* VA Timeline */
+#va-timeline-container {
+  position: relative;
+  width: 100%;
+  height: 120px;
+  background: var(--va-panel-bg);
+  border-top: 1px solid var(--va-border);
+  padding: 12px 24px;
+  z-index: 500;
+  margin-top: 0px;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+#va-timeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+#va-timeline-date {
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--va-accent);
+  font-family: 'Consolas', monospace;
+}
+
+#va-timeline-range {
+  font-size: 11px;
+  color: var(--va-muted);
+}
+
+#va-timeline-track-wrap {
+  position: relative;
+  padding: 8px 0;
+}
+
+#va-timeline-track {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  background: #e9ecef;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+#va-timeline-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  background: linear-gradient(90deg, var(--va-accent), var(--va-accent-light));
+  border-radius: 3px;
+  width: 0%;
+  pointer-events: none;
+}
+
+#va-timeline-thumb {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 16px;
+  background: var(--va-accent);
+  border: 3px solid white;
+  border-radius: 50%;
+  cursor: grab;
+  z-index: 10;
+  left: 0%;
+  box-shadow: 0 2px 8px rgba(233, 69, 96, 0.4);
+}
+
+#va-timeline-thumb:active { cursor: grabbing; }
+
+#va-timeline-ticks {
+  position: relative;
+  width: 100%;
+  height: 20px;
+  margin-top: 2px;
+}
+
+#va-timeline-events {
+  position: relative;
+  width: 100%;
+  height: 16px;
+  margin-top: 2px;
+}
+
+.va-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  text-align: center;
+}
+
+.va-tick-line {
+  width: 1px;
+  height: 6px;
+  background: var(--va-muted);
+  margin: 0 auto 2px;
+}
+
+.va-tick-label {
+  font-size: 9px;
+  color: var(--va-muted);
+  white-space: nowrap;
+}
+
+.va-event-point {
+  position: absolute;
+  bottom: -4px;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 8px;
+  background: var(--va-blue);
+  border-radius: 50%;
+  cursor: pointer;
+  border: 2px solid var(--va-panel-bg);
+  z-index: 5;
+}
+
+.va-event-point:hover, .va-event-point.active {
+  width: 12px;
+  height: 12px;
+  background: var(--va-accent);
+  border-color: white;
+}
+
+/* Marker animation */
+@keyframes va-pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+.va-marker-new {
+  animation: va-pulse 0.6s ease;
+  box-shadow: 0 0 0 3px white, 0 0 0 5px var(--va-accent), 0 2px 8px rgba(0,0,0,0.4) !important;
+}
+
+.va-point-undated {
+  opacity: 0.5;
+}
+
+
+#float-add-btn {
+  position: fixed;
+  z-index: 9999;
+  background: var(--so-accent);
+  color: #2a2a2a;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  white-space: nowrap;
+  display: none;
+}
+#float-add-btn:hover { background: #b8985d; }
+
+#table-toolbar {
+  padding: 8px 14px;
+  background: #f0f0ea;
+  border-bottom: 1px solid var(--so-border);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#filters {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#filters label {
+  font-size: 11px;
+  color: #555;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+#filters input[type="text"] {
+  padding: 4px 8px;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  font-size: 12px;
+  width: 120px;
+}
+
+#table-wrap {
+  flex: 1;
+  overflow: auto;
+  min-width: 0;
+}
+#toponym-table {
+  min-width: 100%;
+  width: max-content;
+}
+#toponym-table th:first-child,
+#toponym-table td:first-child {
+  position: sticky;
+  left: 0;
+  background: inherit;
+  z-index: 1;
+}
+#toponym-table th:first-child {
+  background: var(--so-table-header);
+  z-index: 2;
+}
+#table-footer {
+  padding: 6px 14px;
+  background: #f0f0ea;
+  border-top: 1px solid var(--so-border);
+  font-size: 10px;
+  color: #999;
+  text-align: center;
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.col-delete {
+  display: inline-block;
+  margin-left: 4px;
+  color: #c62828;
+  cursor: pointer;
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.prompt-tab {
+  background: #e0e0d8;
+  color: #555;
+  border: none;
+  border-radius: 4px 4px 0 0;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 6px 14px;
+  font-size: 12px;
+}
+.prompt-tab:hover {
+  background: #d0d0c8;
+}
+.prompt-tab.active {
+  background: #c9a96e;
+  color: #2a2a2a;
+}
+#toponym-table th:hover .col-delete { opacity: 1; }
+</style>
+
+<!-- ============================================ -->
+<!-- БЛОК 04: LAYOUT                              -->
+<!-- ============================================ -->
+<body>
+
+<!-- Markup Load Confirm Modal -->
+<div id="markup-confirm-modal" class="modal-backdrop">
+  <div class="modal-box" style="max-width: 500px;">
+    <button class="modal-close" onclick="closeModal('markup-confirm-modal')">×</button>
+    <h2 style="color: #4a4a4a; margin-bottom: 16px; font-size: 18px;">📦 Загрузка разметки</h2>
+    <p style="color: #555; font-size: 13px; line-height: 1.7; margin-bottom: 20px;">
+      У вас уже есть разметка. Что вы хотите сделать?
+    </p>
+    <div style="display: flex; gap: 10px; justify-content: flex-end;">
+      <button class="btn" onclick="handleMarkupConfirm('cancel')" style="padding: 8px 20px; font-size: 13px;">Отмена</button>
+      <button class="btn" onclick="handleMarkupConfirm('replace')" style="padding: 8px 20px; font-size: 13px;">Загрузить</button>
+      <button class="btn primary" onclick="handleMarkupConfirm('append')" style="padding: 8px 20px; font-size: 13px;">Склеить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Table Context Menu -->
+<div id="table-context-menu">
+  <div class="menu-item" id="ctx-rebind" onclick="startRebindMode()">🔗 Привязать к выделению в тексте</div>
+</div>
+
+<!-- Text Context Menu -->
+<div id="text-context-menu">
+  <div class="menu-item" onclick="setTextStatusFromMenu('confirmed')">✅ Подтвердить</div>
+  <div class="menu-item" onclick="setTextStatusFromMenu('suggested')">🤔 Уточнить</div>
+  <div class="menu-item" onclick="setTextStatusFromMenu('rejected')">❌ Отклонить</div>
+</div>
+
+<!-- Long Text Warning Modal -->
+<div id="long-text-modal" class="modal-backdrop">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('long-text-modal')">×</button>
+    <h2 style="color:#4a4a4a; margin-bottom:16px; font-size:18px;">📜 Длинный текст загружен</h2>
+    <p style="color:#555; font-size:13px; line-height:1.7; margin-bottom:12px;">
+      Загружен текст длиной более <b>7000 символов</b>.<br>
+      Для лучшего результата рекомендуется обрабатывать текст частями.
+    </p>
+    <h3 style="color:#4a4a4a; font-size:14px; margin:12px 0 8px 0;">Как это сделать:</h3>
+    <ol style="color:#555; font-size:12px; line-height:1.9; padding-left:18px; margin-bottom:16px;">
+      <li>Выделите нужный фрагмент в окне<br>
+          <span style="color:#888; font-size:11px;">(клик в начале → скролл → Shift+Click в конце)</span></li>
+      <li>Скопируйте выделенный текст и вставьте в диалог с ИИ</li>
+      <li><b>Сохраните скопированный фрагмент в отдельный .txt файл</b> — это поможет вам не потерять прогресс и работать с частями текста по отдельности</li>
+      <li>Загрузите полученную разметку в программу</li>
+    </ol>
+    <p style="color:#888; font-size:11px; font-style:italic; margin-bottom:16px;">
+      Вы можете продолжить работать с полным текстом, но обработка частями даёт более точные результаты.
+    </p>
+    <button class="btn primary" onclick="closeModal('long-text-modal')" style="padding:8px 20px; font-size:13px;">Понятно</button>
+  </div>
+</div>
+
+<!-- About Modal -->
+<div id="about-modal" class="modal-backdrop">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('about-modal')">×</button>
+
+    <h2 style="color:#4a4a4a; margin-bottom:8px; font-size:20px;">СОВА — Текст и Карта</h2>
+    <p style="color:#666; font-size:12px; line-height:1.5; margin-bottom:14px;">
+      <b>Версия:</b> 0.4<br>
+      <a href="https://doi.org/10.5281/zenodo.22042044"><img src="https://zenodo.org/badge/1339910338.svg" alt="DOI"></a><br>
+      <b>Автор:</b> Марина Шилова<br>
+      <b>Соавтор:</b> Дмитрий Белкин<br>
+      <b>Контакт:</b> <a href="mailto:marvsh@yandex.ru" style="color:#c9a96e;">marvsh@yandex.ru</a>
+    </p>
+
+    <p style="color:#555; font-size:13px; line-height:1.6; margin-bottom:12px;">
+      <b>СОВА</b> — инструмент для геовизуализации текстов и таблиц.
+      Превращает упоминания мест в интерактивную карту с таймлайном. Работает локально в браузере,
+      не отправляет данные на внешние серверы. Интернет нужен только для подгрузки картографической подложки.
+    </p>
+
+    <p style="color:#555; font-size:13px; line-height:1.6; margin-bottom:12px;">
+      <b>Цитирование</b> при использовании в исследованиях и публикациях:<br>
+      <i>Shilova, M. (2026). SOVA [Computer software]. URL: <a href="https://doi.org/10.5281/zenodo.22042044" target="_blank" rel="noopener" style="color:#c9a96e;">https://doi.org/10.5281/zenodo.22042044</a></i>
+    </p>
+
+    <p style="background:#fdf6e3; border-left:3px solid #c9a96e; padding:10px 12px; margin-bottom:14px; font-size:13px; line-height:1.5;">
+      📘 <b>Подробный туториал, примеры файлов, исходный код, релизы и документация</b> лежат в репозитории проекта:<br>
+      <a href="https://github.com/MatrixMentularia/SOVA" target="_blank" rel="noopener" style="color:#c9a96e; font-weight:600;">MatrixMentularia/SOVA</a>
+    </p>
+
+    <h3 style="color:#4a4a4a; font-size:13px; margin-bottom:6px;">Ресурсы</h3>
+    <ul style="color:#555; font-size:12px; line-height:1.7; padding-left:18px; margin-bottom:14px;">
+      <li>Сообщество ВКонтакте: <a href="https://vk.ru/humgis" target="_blank" rel="noopener" style="color:#c9a96e;">Гуманитарные ГИС</a></li>
+      <li>Канал в Telegram: <a href="https://t.me/humgis" target="_blank" rel="noopener" style="color:#c9a96e;">Гуманитарный ГИС</a></li>
+    </ul>
+
+    <h3 style="color:#4a4a4a; font-size:13px; margin-bottom:6px;">Быстрый старт</h3>
+    <ol style="color:#555; font-size:12px; line-height:1.7; padding-left:18px; margin-bottom:14px;">
+      <li>Загрузите <code>.txt</code> с текстом (или работайте сразу с таблицей).</li>
+      <li>Скопируйте промпт из раздела «Промпты» и отдайте его в ИИ вместе с текстом — получите <code>.json</code> разметки.</li>
+      <li>Загрузите разметку через кнопку «Разметка.json».</li>
+      <li>Проверьте топонимы во вкладке <b>Текст</b>: подтвердите, уточните или отклоните.</li>
+      <li>Получите координаты (через ИИ или вручную) и загрузите их как «Данные.json».</li>
+      <li>Перейдите во вкладку <b>Карта</b>, нажмите «Построить карту», затем «Играть».</li>
+      <li>Экспортируйте результат: проект <code>.sova.json</code>, CSV или готовую HTML-карту.</li>
+    </ol>
+
+    <h3 style="color:#4a4a4a; font-size:13px; margin-bottom:6px;">Возможности</h3>
+    <ul style="color:#555; font-size:12px; line-height:1.7; padding-left:18px; margin-bottom:14px;">
+      <li>Синхронная прокрутка текста и таблицы, клик-навигация между ними</li>
+      <li>Ручное выделение и добавление топонимов прямо в тексте</li>
+      <li>Редактирование координат перетаскиванием маркеров на карте</li>
+      <li>Анимация по времени: режимы «События» и «Время»</li>
+      <li>Линии между датированными точками</li>
+      <li>Экспорт автономной HTML-карты для встраивания на сайт</li>
+    </ul>
+
+    <h3 style="color:#4a4a4a; font-size:13px; margin-bottom:6px;">Благодарности</h3>
+    <p style="color:#555; font-size:12px; line-height:1.6; margin-bottom:14px;">
+      Программа создана на базе <a href="https://leafletjs.com" target="_blank" rel="noopener" style="color:#c9a96e;">Leaflet</a>
+      и картографических данных <a href="https://www.openstreetmap.org" target="_blank" rel="noopener" style="color:#c9a96e;">OpenStreetMap</a>
+      © участники OSM.
+    </p>
+    <p style="color:#555; font-size:12px; line-height:1.6; margin-bottom:14px;">
+      Отдельная благодарность тестировщикам, бета-пользователям и всем, кто помогал выработать рабочие промпты для ИИ:<br>
+      <!-- [СЮДА ВСТАВИТЬ СПИСОК ИМЁН, например: Иванов И., Петров П., Сидорова С.] -->
+      <i>Котов А.С., Меркулов С.А., Бочаров А.В., а также нейросетевые помощники</i>
+    </p>
+
+
+    <hr style="border:none; border-top:1px solid #ddd; margin:14px 0;">
+
+    <h3 style="color:#4a4a4a; font-size:13px; margin-bottom:6px;">Лицензия</h3>
+    <p style="color:#555; font-size:12px; line-height:1.6; margin-bottom:6px;">
+      Программа распространяется по лицензии <b>GNU Affero General Public License v3.0 (AGPL-3.0)</b>.<br>
+      Основные права принадлежат Марине Шиловой; проект разработан при поддержке Дмитрия Белкина.
+    </p>
+    <p style="color:#555; font-size:12px; line-height:1.6; margin-bottom:6px;">
+      По вопросам <b>коммерческой лицензии</b> (для встраивания в закрытые продукты) — 
+      <a href="mailto:marvsh@yandex.ru" style="color:#c9a96e;">marvsh@yandex.ru</a>
+    </p>
+    <p style="color:#888; font-size:11px; line-height:1.5; font-style:italic;">
+      Полный текст лицензии: <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" rel="noopener" style="color:#c9a96e;">gnu.org/licenses/agpl-3.0</a>
+    </p>
+  </div>
+</div>
+
+<!-- Prompts Modal -->
+<div id="prompts-modal" class="modal-backdrop">
+  <div class="modal-box" style="max-width: 800px; max-height: 95vh;">
+    <button class="modal-close" onclick="closeModal('prompts-modal')">×</button>
+    <h2 style="color: #4a4a4a; margin-bottom: 16px; font-size: 18px;">Промпты для ИИ-обработки</h2>
+    
+    <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+      <button class="btn primary prompt-btn" onclick="showPrompt('guide')" id="btn-guide">РУКОВОДСТВО</button>
+      <button class="btn prompt-btn" onclick="showPrompt('geo-universal')" id="btn-geo-universal">Геопарсинг<br>универсальный</button>
+      <button class="btn prompt-btn" onclick="showPrompt('geo-numeric')" id="btn-geo-numeric">Таблица<br>в Сову</button>
+      <button class="btn prompt-btn" onclick="showPrompt('geocoding')" id="btn-geocoding">Геокодирование</button>
+      <button class="btn prompt-btn" onclick="showPrompt('time')" id="btn-time">Время</button>
+    </div>
+    
+    <div id="prompt-content" style="background: #f9f9f6; border: 1px solid #ddd; border-radius: 4px; padding: 16px; max-height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-wrap: break-word;">
+      Нажмите на кнопку выше, чтобы увидеть текст промпта.
+    </div>
+    
+    <div style="margin-top: 16px; text-align: right;">
+      <button class="btn" onclick="copyPromptToClipboard()">📋 Копировать</button>
+      <button class="btn primary" onclick="closeModal('prompts-modal')" style="margin-left: 10px;">Закрыть</button>
+    </div>
+  </div>
+</div>
+
+<!-- Header -->
+<div id="header">
+  <h1>
+    <span style="color:#fff;">С</span><span style="color:#fff;">О</span><span style="color:#c9a96e;">В</span><span style="color:#c9a96e;">А</span>
+    <span style="font-size:15px; color:#fff; font-weight:450; margin-left:6px;">— Текст и Карта</span>
+  </h1>
+  <a href="https://doi.org/10.5281/zenodo.22042044"><img src="https://zenodo.org/badge/1339910338.svg" alt="DOI"></a>
+  <div style="margin-right:auto; font-size:10px; color:#aaa; padding-left:12px;">
+    © Марина Шилова
+  </div>
+
+  <button class="btn" onclick="openModal('about-modal')" style="font-size:14px; padding:6px 10px;">ⓘ</button>
+  <button class="btn" onclick="openModal('prompts-modal')">Промпты</button>
+
+  <button class="btn tab-btn active" id="tab-so-btn" onclick="switchTab('so')">📝 Текст</button>
+  <button class="btn tab-btn" id="tab-va-btn" onclick="switchTab('va')">🗺️ Карта</button>
+
+  <label class="btn"><input type="file" id="file-txt" accept=".txt">Текст.txt</label>
+  <label class="btn"><input type="file" id="file-markup" accept=".json">Разметка.json</label>
+  <button class="btn" onclick="document.getElementById('file-data').click()">Данные.json</button>
+  <input type="file" id="file-data" accept=".json" style="display: none;">
+  <input type="file" id="file-table" accept=".json" style="display: none;">
+  <button class="btn" id="btn-sync" onclick="toggleSync()">🔗 Синхроскролл</button>
+  <div style="position: relative;">
+    <button class="btn primary" id="download-btn" onclick="toggleDownloadMenu()">⬇ Скачать</button>
+    <div id="download-menu">
+      <div class="menu-item" onclick="exportProject(); hideDownloadMenu()">💾 Проект (полный)</div>
+      <div class="menu-item" onclick="exportCleanJSON(); hideDownloadMenu()">🧹 Чистый (без отклонённых)</div>
+      <div class="menu-item" onclick="exportMarkup(); hideDownloadMenu()">📦 Разметка</div>
+      <div class="menu-item" onclick="exportFullCSV(); hideDownloadMenu()">📊 CSV</div>
+      <div class="menu-item" onclick="exportVaEmbed(); hideDownloadMenu()">🗺️ HTML-карта</div>
+    </div>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app">
+  <div id="tab-content">
+
+    <!-- SO Panel -->
+    <div id="so-panel" class="tab-panel active">
+      <div id="text-panel">
+        <div id="text-toolbar">
+          <span id="text-info">Загрузите текст и разметку</span>
+          <span id="text-stats"></span>
+        </div>
+        <div id="text-content">
+          <div class="placeholder">
+            Перетащите файлы сюда или используйте кнопки выше<br><br>
+            1. Загрузите .txt с текстом<br>
+            2. Выделяйте топонимы в тексте и добавляйте их<br>
+            3. Редактируйте таблицу справа<br>
+            4. Перейдите на вкладку «Карта» для визуализации
+          </div>
+        </div>
+      </div>
+
+      <div id="table-panel">
+        <div id="table-toolbar">
+          <select id="table-mode" onchange="renderTable()" style="padding:4px 8px; border:1px solid #ccc; border-radius:3px; font-size:12px;">
+            <option value="text">Обработка текста</option>
+            <option value="full">Полная таблица</option>
+            <option value="va">Карта</option>
+          </select>
+          <button class="btn" onclick="addCustomColumn()" style="padding:4px 10px; font-size:11px;">➕ Колонка</button>
+          <div id="filters">
+            <label><input type="checkbox" id="filter-confirmed" checked onchange="applyFilters()"> ✅</label>
+            <label><input type="checkbox" id="filter-suggested" checked onchange="applyFilters()"> 🤔</label>
+            <label><input type="checkbox" id="filter-rejected" onchange="applyFilters()"> ❌</label>
+            <input type="text" id="filter-text" placeholder="Поиск..." oninput="applyFilters()">
+          </div>
+        </div>
+        <div id="table-wrap">
+          <table id="toponym-table">
+            <thead><tr id="table-header-row"></tr></thead>
+            <tbody id="table-body">
+              <tr><td colspan="10" style="text-align:center;color:#999;padding:40px;">Загрузите данные</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="table-footer">SPDX-License-Identifier: AGPL-3.0-or-later Copyright © 2026 Марина Шилова. Marina Shilova, Dmitry Belkin</div>
+      </div>
+    </div>
+
+    <!-- VA Panel -->
+    <div id="va-panel" class="tab-panel">
+<div id="va-sidebar">
+  <div>
+    <div style="font-size: 16px; color: var(--va-muted); margin-bottom: 8px;">Геовизуализация</div>
+  </div>
+
+  <!-- VA Search Box -->
+  <div>
+    <div class="va-section-label">Поиск на карте</div>
+    <div style="display: flex; gap: 8px; margin-bottom: 8px; position: relative;">
+      <input type="text" id="va-search-coords" placeholder="Координаты (lat, lon)" readonly
+        style="width: 100%; padding: 6px 30px 6px 6px; border: 1px solid var(--va-border); border-radius: 4px; font-size: 11px; background: #f9f9f9;">
+      <button id="va-copy-coords-btn" onclick="copyVaCoords()" title="Копировать координаты"
+        style="position: absolute; right: 3px; top: 50%; transform: translateY(-50%); width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--va-border); border-radius: 4px; background: #fff; cursor: pointer; font-size: 12px; padding: 0;">📋</button>
+    </div>
+    <div style="position: relative;">
+      <span id="va-search-btn" 
+          style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: #666; cursor: pointer; z-index: 2; padding: 2px;" 
+          onclick="performVaSearch()">🔍</span>
+      <input type="text" id="va-search-input" placeholder="Место..." 
+           style="width: 100%; padding: 8px 30px 8px 30px; border: 1px solid var(--va-border); border-radius: 4px; font-size: 12px;">
+      <span id="va-search-clear" 
+          style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; color: #999; display: none;">✕</span>
+    </div>
+    <select id="va-search-results" 
+            style="width: 100%; margin-top: 4px; padding: 4px; border: 1px solid var(--va-border); border-radius: 4px; font-size: 11px; display: none;"></select>
+  </div>
+
+  <div>
+    <div class="va-section-label">Данные</div>
+    <div class="va-textarea" id="va-data-preview" style="height:80px; background:#f8f9fa;" readonly>Данные загрузятся из таблицы автоматически</div>
+  </div>
+  <div>
+    <div class="va-section-label">Настройки</div>
+    <div class="va-settings">
+      <label>Режим
+      <select id="va-mode" onchange="setVaMode(this.value)">
+        <option value="event">События</option>
+        <option value="time">Время</option>
+      </select>
+      </label>
+      <label><span style="display:block; margin-bottom:4px;">Сек/шаг</span><input type="number" id="va-speed" value="2" min="0.5" max="10" step="0.5"></label>
+      <label>Стоп-зум
+      <input type="checkbox" id="va-zoom-lock" onchange="setVaZoomLock(this.checked)" title="Отключить авто-пан и авто-зум во время анимации">
+      </label>
+    </div>
+  </div>
+  <div style="display:flex; flex-direction:column; gap:8px;">
+    <button class="va-action primary" id="va-build-btn" onclick="buildVaMap()">🔨 Построить карту</button>
+    <div style="display:flex; flex-direction:row; gap:8px;">
+      <button class="va-action" id="va-play-btn" onclick="toggleVaPlay()" disabled style="flex:1;">▶ Играть</button>
+      <button class="va-action secondary" onclick="resetVa()" style="flex:1;">↺ Сброс</button>
+    </div>
+    <button class="va-action" onclick="exportVaEmbed()" style="background:#6c757d; color:#fff;">📤 Код для сайта</button>
+  </div>
+  <div>
+    <div class="va-section-label">Статус</div>
+    <div id="va-status" class="va-status info">Загрузите данные в таблицу и нажмите «Построить карту»</div>
+  </div>
+  <div style="font-size:11px; color:#999; line-height:1.6;">
+    <b>Поля таблицы:</b><br>
+    • name — название<br>
+    • lat, lon — координаты<br>
+    • date — дата (YYYY-MM-DD)<br>
+    • order — порядок<br>
+    • group — группа/цвет<br>
+    • description — описание
+  </div>
+</div>
+      <div id="va-main">
+        <div id="va-map-wrap">
+          <div id="va-map"></div>
+          <div id="va-center-cross"></div>
+          <div class="map-attribution">
+            <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a> |
+            © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a> |
+            © <a href="https://wikimediafoundation.org/" target="_blank" rel="noopener">Wikimedia</a>
+          </div>
+          <div class="va-legend" id="va-legend" style="display:none;"></div>
+        </div>
+
+        <!-- Timeline -->
+        <div id="va-timeline-container">
+          <div id="va-timeline-header">
+            <div id="va-timeline-date">—</div>
+            <div id="va-timeline-range">—</div>
+          </div>
+          <div id="va-timeline-track-wrap">
+            <div id="va-timeline-track" onclick="seekTimeline(event)">
+              <div id="va-timeline-fill"></div>
+              <div id="va-timeline-thumb" onmousedown="startVaDrag(event)"></div>
+            </div>
+          </div>
+          <div id="va-timeline-events"></div>
+          <div id="va-timeline-ticks"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+<!-- ============================================ -->
+<!-- БЛОК 05: STATE                               -->
+<!-- ============================================ -->
+<script>
+let STATE = {
+  data: [],
+  text: '',
+  textFileName: '',
+  markup: [],
+  markupSource: '',
+  textHash: '',
+  activeId: null,
+  customColumns: [],
+  savedSelection: null,
+  nextGlobalId: 1,
+  config: { ...CONFIG },
+
+  vaRawData: [],
+  vaMinDate: null,
+  vaMaxDate: null,
+  vaMarkers: [],
+  vaLines: [],
+  vaCurrentFrame: 0,
+  vaIsPlaying: false,
+  vaIsDragging: false,
+  vaTimelineMode: 'event',
+  vaDatePrecision: 'year',
+  vaGroups: new Set(),
+  vaSteps: [],
+  vaCurrentStepIndex: 0,
+  vaRenderedPointIds: new Set(),
+  vaRenderedLineKeys: new Set(),
+  vaSearchMarker: null,
+  lastSearchResults: [],
+  vaLastRenderedProgress: -1,
+  vaBaseZoom: null,
+  vaZoomLocked: false,
+  longTextWarningShown: false,
+  pendingMarkupFile: null,
+  pendingMarkupData: null,
+  pendingRebindId: null,      
+  contextMenuTargetId: null,
+  textMenuTargetId: null,
+  currentPromptType: 'geo-universal'
+};
+
+let vaMap = null;
+let vaIntervalId = null;
+</script>
+
+<!-- ============================================ -->
+<!-- БЛОК 06: UTILS                               -->
+<!-- ============================================ -->
+<script>
+function escapeHtml(text) {
+  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function truncate(str, len) {
+  if (!str) return '';
+  return str.length > len ? str.slice(0, len) + '…' : str;
+}
+
+function readFile(file, callback) {
+  const reader = new FileReader();
+  reader.onload = e => callback(e.target.result);
+  reader.readAsText(file);
+}
+
+function download(filename, content, type) {
+  try {
+    const blob = new Blob([content], { type: type || 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function() {
+      if (a.parentNode) document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 300);
+  } catch (err) {
+    console.error('Download error:', err);
+    alert('Ошибка скачивания. Попробуйте другой браузер.');
+  }
+}
+
+function escapeCSV(str) {
+  if (str === null || str === undefined) return '';
+  str = String(str);
+  if (str.indexOf(',') !== -1 || str.indexOf('"') !== -1 || str.indexOf('\n') !== -1 || str.indexOf('\r') !== -1) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
+
+function validateProject(obj) {
+  return obj && (obj.format === 'SOVA-MARKUP' || obj.format === 'SOVA-TABLE');
+}
+
+function checkOverlap(start, end, excludeId) {
+  for (const t of STATE.data) {
+    if (t.id === excludeId) continue;
+    if (t.start !== undefined && t.end !== undefined) {
+      if (t.start < end && t.end > start) return t;
+    }
+  }
+  return null;
+}
+
+function openModal(id) {
+  var modal = document.getElementById(id);
+  if (modal) {
+    modal.classList.add('show');
+    
+    if (id === 'prompts-modal') {
+      if (typeof showPrompt === 'function') {
+        showPrompt('guide');
+      }
+    }
+  }
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+function showPrompt(type) {
+  var content = 'Промпт не найден. Проверьте код.';
+  if (type === 'guide' && typeof SOVA_GUIDE_PROMPT !== 'undefined') {
+    content = SOVA_GUIDE_PROMPT;
+  } else if (type === 'geo-universal' && typeof SOVA_MARKUP_UNIVERSAL_PROMPT !== 'undefined') {
+    content = SOVA_MARKUP_UNIVERSAL_PROMPT;
+  } else if (type === 'geo-numeric' && typeof SOVA_MARKUP_PROMPT !== 'undefined') {
+    content = SOVA_MARKUP_PROMPT;
+  } else if (type === 'geocoding') {
+    content = SOVA_GEOCODING_PROMPT;
+  } else if (type === 'time') {
+    content = SOVA_TIME_PROMPT;
+  }
+  
+  var promptContent = document.getElementById('prompt-content');
+  if (promptContent) {
+    promptContent.textContent = content;
+  }
+
+  var btnGuide = document.getElementById('btn-guide');
+  var btnU = document.getElementById('btn-geo-universal');
+  var btnN = document.getElementById('btn-geo-numeric');
+  var btnG = document.getElementById('btn-geocoding');
+  var btnT = document.getElementById('btn-time');
+  if (btnGuide) btnGuide.classList.remove('primary');
+  if (btnU) btnU.classList.remove('primary');
+  if (btnN) btnN.classList.remove('primary');
+  if (btnG) btnG.classList.remove('primary');
+  if (btnT) btnT.classList.remove('primary');
+  
+  var activeBtnId = 'btn-' + type;
+  var activeBtn = document.getElementById(activeBtnId);
+  if (activeBtn) activeBtn.classList.add('primary');
+  
+  if (typeof STATE !== 'undefined') {
+    STATE.currentPromptType = type;
+  }
+}
+
+function copyPromptToClipboard() {
+  var promptContent = document.getElementById('prompt-content');
+  if (!promptContent || !promptContent.textContent) {
+    alert('Нет содержимого для копирования.');
+    return;
+  }
+  var text = promptContent.textContent;
+  navigator.clipboard.writeText(text).then(function() {
+    alert('✅ Промпт скопирован');
+  }).catch(function() {
+    alert('❌ Не удалось скопировать автоматически. Выделите текст вручную и нажмите Ctrl+C.');
+  });
+}
+
+function fallbackCopy(text) {
+  var tempTextarea = document.createElement('textarea');
+  tempTextarea.value = text;
+  tempTextarea.style.position = 'fixed';
+  tempTextarea.style.left = '-9999px';
+  document.body.appendChild(tempTextarea);
+  tempTextarea.select();
+  try {
+    document.execCommand('copy');
+    alert('✅ Промпт скопирован в буфер обмена');
+  } catch (err) {
+    alert('❌ Не удалось скопировать. Скопируйте вручную.');
+  }
+  document.body.removeChild(tempTextarea);
+}
+
+function updateToponymCoords(id, lat, lon, text) {
+  // Ищем по originalId + text (надёжнее, чем только по ID)
+  let item = STATE.data.find(t => 
+    (t.originalId === id || t.id === id) && 
+    (t.text === text || t.name === text)
+  );
+  
+  // Fallback: если не нашли по паре, пробуем только по ID
+  if (!item) {
+    item = STATE.data.find(t => (t.originalId === id || t.id === id));
+  }
+  
+  if (item) {
+    item.lat = parseFloat(lat);
+    item.lon = parseFloat(lon);
+    console.log('✅ Координаты обновлены:', item.originalId, item.text, lat, lon);
+  } else {
+    console.error('❌ Точка не найдена для обновления!', 'ID:', id, 'Text:', text);
+  }
+}
+
+function sortVaPointsChrono(points) {
+  return points.filter(p => p.date).sort(function(a, b) {
+    if (a.date.getTime() !== b.date.getTime()) return a.date - b.date;
+    return (a.order || 0) - (b.order || 0);
+  });
+}
+
+function redrawVaLines() {
+  // Очищаем старые линии
+  STATE.vaLines.forEach(l => vaMap.removeLayer(l));
+  STATE.vaLines = [];
+  STATE.vaRenderedLineKeys.clear();
+  // Пересчитываем данные для карты (они уже обновлены в STATE.data)
+  const vaData = dataToVaFormat();
+  // Оставляем только точки, которые сейчас видны на карте
+  const visible = getVaVisiblePoints(STATE.vaCurrentFrame);
+  const visibleIds = new Set(visible.map(p => p.id));
+  const visibleData = vaData.filter(p => visibleIds.has(p.id));
+  // Рисуем новые линии только по видимым точкам
+  const dated = sortVaPointsChrono(visibleData);
+  if (dated.length < 2) return;
+  for (let i = 1; i < dated.length; i++) {
+    const lineKey = dated[i-1].id + '-' + dated[i].id;
+    if (STATE.vaRenderedLineKeys.has(lineKey)) continue;
+    const line = L.polyline(
+      [[dated[i-1].lat, dated[i-1].lon], [dated[i].lat, dated[i].lon]],
+      { color: '#e94560', weight: 2.5, opacity: 0.7, dashArray: '10, 8' }
+    ).addTo(vaMap);
+    STATE.vaLines.push(line);
+    STATE.vaRenderedLineKeys.add(lineKey);
+  }
+}
+
+function generateUid(contextBefore, text, contextAfter) {
+  function normalize(str) {
+    if (!str) return '';
+    return str
+      .replace(/\u00A0/g, ' ')
+      .replace(/[\u00AB\u00BB\u201C\u201D\u201E\u201F]/g, '"')
+      .replace(/[\u2013\u2014]/g, '-')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  var raw = normalize(contextBefore) + '|' + normalize(text) + '|' + normalize(contextAfter);
+  var hash = 5381;
+  for (var i = 0; i < raw.length; i++) {
+    hash = ((hash << 5) + hash + raw.charCodeAt(i)) & 0xFFFFFFFF;
+  }
+  return 'u-' + (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+function formatDateForDisplay(dateStr) {
+  if (!dateStr || String(dateStr).trim() === '') return '';
+  var s = String(dateStr).trim();
+  // Если это только год (YYYY) или год-месяц (YYYY-MM) — возвращаем как есть
+  if (/^\d{4}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}$/.test(s)) return s;
+  // Парсим полную дату
+  var d = new Date(s);
+  if (isNaN(d.getTime())) return s;
+  var dd = String(d.getDate()).padStart(2, '0');
+  var mm = String(d.getMonth() + 1).padStart(2, '0');
+  var yyyy = d.getFullYear();
+  var hh = String(d.getHours()).padStart(2, '0');
+  var min = String(d.getMinutes()).padStart(2, '0');
+  // Если время полночь (00:00) — значит времени нет, показываем только дату
+  if (hh === '00' && min === '00') {
+    return dd + '.' + mm + '.' + yyyy;
+  }
+  return dd + '.' + mm + '.' + yyyy + ' ' + hh + ':' + min;
+}
+</script>
+
+<!-- ============================================ -->
+<!-- БЛОК 07: DATA                                -->
+<!-- ============================================ -->
+<script>
+function dataToVaFormat() {
+  return STATE.data.filter(t => t.status !== 'rejected').map((t, idx) => ({
+    id: t.id,
+    originalId: t.originalId,
+    name: t.name || '',
+    lat: (t.lat !== null && t.lat !== undefined) ? parseFloat(t.lat) : null,
+    lon: (t.lon !== null && t.lon !== undefined) ? parseFloat(t.lon) : null,
+    date: parseVaDate(t.date),
+    dateStr: t.date || null,
+    order: parseInt(t.order) || (idx + 1),
+    group: t.group || 'default',
+    description: t.description || ''
+  })).filter(t => t.lat !== null && t.lon !== null && !isNaN(t.lat) && !isNaN(t.lon));
+}
+
+function parseVaDate(dateStr) {
+  if (!dateStr || String(dateStr).trim() === '') return null;
+  var s = String(dateStr).trim();
+  if (/^\d{4}$/.test(s)) return new Date(parseInt(s), 0, 1);           // YYYY
+  if (/^\d{4}-\d{2}$/.test(s)) return new Date(s + '-01');              // YYYY-MM
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(s + 'T00:00:00'); // YYYY-MM-DD
+  var d = new Date(s);
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
+function vaToDataFormat(vaPoints) {
+  return vaPoints.map((p, idx) => ({
+    id: p.id || ('t-' + String(idx + 1).padStart(3, '0')),
+    name: p.name,
+    lat: p.lat,
+    lon: p.lon,
+    date: p.dateStr || p.date || '',
+    group: p.group || 'default',
+    order: p.order || (idx + 1),
+    description: p.description || '',
+    status: 'confirmed'
+  }));
+}
+
+function syncMarkupToData(markupArray, isAppend, globalOffset) {
+  if (!markupArray || markupArray.length === 0) return;
+  
+  globalOffset = globalOffset || 0;
+  
+  if (!isAppend) {
+    STATE.data = [];
+  }
+
+  for (var j = 0; j < markupArray.length; j++) {
+    var m = markupArray[j];
+    
+    var globalStart = null;
+    var globalEnd = null;
+    var contextBefore = m.context_before || '';
+    var contextAfter = m.context_after || '';
+    var toponymText = m.text || m.name || '';
+    
+    // Приоритет 1: поиск по контексту
+    if (contextBefore || contextAfter) {
+      var found = findToponymByContext(contextBefore, toponymText, contextAfter);
+      if (found !== null) {
+        globalStart = found.start;
+        globalEnd = found.end;
+        console.log('✅ Топоним найден по контексту:', toponymText, 'на позиции', globalStart);
+      } else {
+        console.warn('⚠️ Контекст не найден для топонима:', toponymText);
+      }
+    }
+    
+    // Приоритет 2: если контекста нет или не нашли — используем start/end с оффсетом
+    if (globalStart === null && m.start !== undefined && m.start !== null) {
+      globalStart = m.start + globalOffset;
+      globalEnd = m.end + globalOffset;
+    }
+    
+    // НОВОЕ: Если позиции есть, но контекста нет — генерируем контекст из текста
+    if (globalStart !== null && globalEnd !== null && !contextBefore && !contextAfter) {
+      contextBefore = STATE.text.slice(Math.max(0, globalStart - 20), globalStart);
+      contextAfter = STATE.text.slice(globalEnd, Math.min(STATE.text.length, globalEnd + 20));
+    }
+    
+    // Проверка пересечений
+    if (globalStart !== null) {
+      var overlap = checkOverlap(globalStart, globalEnd);
+      if (overlap) {
+        console.warn('Пересечение при склейке:', m.id, 'с', overlap.id);
+      }
+    }
+    var newUid = m.uid || generateUid(contextBefore, toponymText, contextAfter);
+    STATE.data.push({
+      id: '',
+      originalId: m.id,
+      uid: newUid,
+      text: (globalStart !== null && globalEnd !== null && STATE.text) 
+        ? STATE.text.slice(globalStart, globalEnd)  // ← Вырезаем из ОРИГИНАЛЬНОГО текста
+        : (m.name || ''),  // ← Fallback только если нет позиций
+      start: globalStart,
+      end: globalEnd,
+      contextBefore: contextBefore,
+      contextAfter: contextAfter,
+      context: (globalStart !== null) 
+        ? STATE.text.slice(Math.max(0, globalStart - 30), Math.min(STATE.text.length, globalEnd + 30))
+        : '',
+      status: m.status || 'suggested',
+      name: m.name || '',
+      lat: (m.lat !== undefined && m.lat !== null) ? parseFloat(m.lat) : null,
+      lon: (m.lon !== undefined && m.lon !== null) ? parseFloat(m.lon) : null,
+      date: m.date || '',
+      note_date: m.note_date || '',
+      group: m.group || '',
+      description: m.description || '',
+      note: m.note || '',
+      confidence: m.confidence || 1.0
+    });
+  }
+  
+  recalculateGlobalIds();
+  recalculateOrder();
+}
+
+function findToponymByContext(contextBefore, toponymText, contextAfter) {
+  if (!STATE.text || !toponymText) return null;
+
+  function normalize(str) {
+    if (!str) return '';
+    return str
+      .replace(/\u00A0/g, ' ') 
+      .replace(/[\u00AB\u00BB\u201C\u201D\u201E\u201F]/g, '"') 
+      .replace(/[\u2013\u2014]/g, '-') 
+      .replace(/\s+/g, ' ') 
+      .trim();
+  }
+
+  var variants = [toponymText];
+  var stripped = toponymText.replace(/^["«»""]|["«»""]$/g, '');
+  if (stripped && stripped !== toponymText) variants.push(stripped);
+
+  var normJsonBefore = normalize(contextBefore);
+  var normJsonAfter = normalize(contextAfter);
+
+  for (var v = 0; v < variants.length; v++) {
+    var variant = variants[v];
+    var searchStart = 0;
+
+    while (true) {
+      var idx = STATE.text.indexOf(variant, searchStart);
+      if (idx === -1) break;
+
+      // Берем чуть больше контекста для проверки (запас 5 символов)
+      var lenBefore = contextBefore ? contextBefore.length + 5 : 0;
+      var lenAfter = contextAfter ? contextAfter.length + 5 : 0;
+
+      var actualBefore = STATE.text.slice(Math.max(0, idx - lenBefore), idx);
+      var actualAfter = STATE.text.slice(idx + variant.length, idx + variant.length + lenAfter);
+
+      var normActualBefore = normalize(actualBefore);
+      var normActualAfter = normalize(actualAfter);
+
+      // Проверяем, заканчивается ли реальный контекст на то, что в JSON (или содержит его)
+      var beforeMatch = normActualBefore.endsWith(normJsonBefore) || normActualBefore.includes(normJsonBefore);
+      var afterMatch = normActualAfter.startsWith(normJsonAfter) || normActualAfter.includes(normJsonAfter);
+
+      if (beforeMatch && afterMatch) {
+        console.log('✅ Топоним найден (с допуском):', variant, 'на позиции', idx);
+        return { start: idx, end: idx + variant.length };
+      }
+
+      searchStart = idx + variant.length;
+    }
+  }
+
+  console.warn('⚠️ Контекст не совпал для:', toponymText);
+  return null;
+}
+
+function recalculateGlobalIds() {
+  STATE.data.sort(function(a, b) { 
+    // Топонимы без привязки — в конец
+    if (a.start === null && b.start !== null) return 1;
+    if (a.start !== null && b.start === null) return -1;
+    if (a.start === null && b.start === null) return 0;
+    return a.start - b.start; 
+  });
+  
+  for (var i = 0; i < STATE.data.length; i++) {
+    STATE.data[i].id = 'g-' + String(i + 1).padStart(3, '0');
+  }
+}
+
+function recalculateOrder() {
+  var n = 0;
+  for (var i = 0; i < STATE.data.length; i++) {
+    var t = STATE.data[i];
+    if (t.status === 'rejected') {
+      t.order = '';
+      continue;
+    }
+    n++;
+    t.order = n;
+  }
+}
+
+function getNextManualId() {
+  var maxNum = 0;
+  for (var i = 0; i < STATE.data.length; i++) {
+    var origId = STATE.data[i].originalId || '';
+    var match = origId.match(/^m-(\d+)$/);
+    if (match) {
+      maxNum = Math.max(maxNum, parseInt(match[1]));
+    }
+  }
+  return 'm-' + String(maxNum + 1).padStart(3, '0');
+}
+
+function bindToponymToSelection(toponymId, selectedText, range) {
+  var t = STATE.data.find(function(x) { return x.id === toponymId; });
+  if (!t) return false;
+  
+  var preCaretRange = range.cloneRange();
+  preCaretRange.selectNodeContents(document.getElementById('text-content'));
+  preCaretRange.setEnd(range.startContainer, range.startOffset);
+  var startOffset = preCaretRange.toString().length;
+  var endOffset = startOffset + selectedText.length;
+  
+  if (startOffset < 0 || endOffset > STATE.text.length) {
+    alert('Ошибка: выделение выходит за границы текста.');
+    return false;
+  }
+  
+  var originalSlice = STATE.text.slice(startOffset, endOffset);
+  
+  // Нормализуем selectedText для сравнения (убираем неразрывные пробелы)
+  var normalizedSelected = selectedText.replace(/\u00A0/g, ' ');
+  var normalizedOriginal = originalSlice.replace(/\u00A0/g, ' ');
+  
+  if (normalizedOriginal !== normalizedSelected) {
+    alert('Ошибка: выделенный текст не совпадает с оригиналом.\n\nВозможно, в тексте есть специальные символы.');
+    return false;
+  }
+  
+  // Запоминаем originalId для поиска после пересчёта
+  var origId = t.originalId;
+  
+  // Обновляем топоним
+  t.start = startOffset;
+  t.end = endOffset;
+  t.text = selectedText;
+  t.contextBefore = STATE.text.slice(Math.max(0, startOffset - 20), startOffset);
+  t.contextAfter = STATE.text.slice(endOffset, Math.min(STATE.text.length, endOffset + 20));
+  t.context = STATE.text.slice(Math.max(0, startOffset - 30), Math.min(STATE.text.length, endOffset + 30));
+  
+  recalculateGlobalIds();
+  recalculateOrder();
+  
+  // Находим новый ID топонима по originalId
+  var updatedToponym = STATE.data.find(function(x) { return x.originalId === origId; });
+  if (updatedToponym) {
+    setActive(updatedToponym.id);
+  }
+  
+  return true;
+}
+
+function recalculateGlobalIds() {
+  // Сортируем по start
+  STATE.data.sort(function(a, b) { return a.start - b.start; });
+  
+  // Пересчитываем глобальные ID сквозным образом
+  for (var i = 0; i < STATE.data.length; i++) {
+    STATE.data[i].id = 'g-' + String(i + 1).padStart(3, '0');
+  }
+}
+
+function getNextManualId() {
+  // Находим максимальный номер среди originalId с префиксом m-
+  var maxNum = 0;
+  for (var i = 0; i < STATE.data.length; i++) {
+    var origId = STATE.data[i].originalId || '';
+    var match = origId.match(/^m-(\d+)$/);
+    if (match) {
+      maxNum = Math.max(maxNum, parseInt(match[1]));
+    }
+  }
+  return 'm-' + String(maxNum + 1).padStart(3, '0');
+}
+
+function syncDataToMarkup() {
+  for (const m of STATE.markup) {
+    const d = STATE.data.find(x => x.id === m.id);
+    if (d) {
+      m.status = d.status;
+    }
+  }
+}
+
+
+</script>
+
+<!-- ============================================ -->
+<!-- БЛОК 08: SO_TEXT                             -->
+<!-- ============================================ -->
+<script>
+function renderText() {
+  var container = document.getElementById('text-content');
+  if (!STATE.text) {
+    container.innerHTML = '<div class="placeholder">Загрузите текст</div>';
+    return;
+  }
+
+  var sorted = STATE.data.filter(function(t) {
+    return t.start >= 0 && t.end <= STATE.text.length && t.start < t.end;
+  }).sort(function(a, b) { return a.start - b.start; });
+
+  var valid = [];
+  var lastEnd = -1;
+  for (var i = 0; i < sorted.length; i++) {
+    var t = sorted[i];
+    if (t.start >= lastEnd) {
+      valid.push(t);
+      lastEnd = t.end;
+    }
+  }
+
+  var html = '';
+  var pos = 0;
+
+  for (var i = 0; i < valid.length; i++) {
+    var t = valid[i];
+    if (t.start > pos) {
+      html += escapeHtml(STATE.text.slice(pos, t.start));
+    }
+
+    var cls = ['toponym'];
+    if (t.status === 'confirmed') cls.push('confirmed');
+    if (t.status === 'rejected') cls.push('rejected');
+    if (t.id === STATE.activeId) cls.push('active');
+
+    var title = (t.group || 'unknown') + ' | conf: ' + (t.confidence || '?');
+    html += '<span class="' + cls.join(' ') + '" data-id="' + t.id + '" onclick="onToponymClick(\'' + t.id + '\')" oncontextmenu="showTextContextMenu(event, \'' + t.id + '\')" title="' + title + '">' + escapeHtml(t.text) + '</span>';
+
+    pos = t.end;
+  }
+
+  if (pos < STATE.text.length) {
+    html += escapeHtml(STATE.text.slice(pos));
+  }
+
+  container.innerHTML = html;
+}
+
+function onToponymClick(id) {
+  setActive(id);
+}
+
+function showTextContextMenu(event, id) {
+  event.preventDefault();
+  event.stopPropagation();
+  hideContextMenu();
+  STATE.textMenuTargetId = id;
+  setActive(id);
+  var menu = document.getElementById('text-context-menu');
+  menu.style.display = 'block';
+  menu.style.left = event.clientX + 'px';
+  menu.style.top = event.clientY + 'px';
+}
+
+function hideTextContextMenu() {
+  var menu = document.getElementById('text-context-menu');
+  menu.style.display = 'none';
+  STATE.textMenuTargetId = null;
+}
+
+function setTextStatusFromMenu(status) {
+  var id = STATE.textMenuTargetId;
+  hideTextContextMenu();
+  if (id) setStatus(id, status);
+}
+
+(function initFloatingButton() {
+  var btn = document.createElement('button');
+  btn.id = 'float-add-btn';
+  document.body.appendChild(btn);
+
+  var textContent = document.getElementById('text-content');
+
+  function hideButton() {
+    btn.style.display = 'none';
+    STATE.savedSelection = null;
+  }
+
+  function showButton() {
+    var sel = window.getSelection();
+    if (!sel.rangeCount) { hideButton(); return; }
+
+    var range = sel.getRangeAt(0);
+    var selectedText = sel.toString();
+
+    if (selectedText.length === 0) { hideButton(); return; }
+
+    var container = document.getElementById('text-content');
+    if (!container.contains(range.commonAncestorContainer)) { hideButton(); return; }
+
+    // Проверка: не выделен ли уже существующий топоним
+    var node = range.commonAncestorContainer;
+    if (node.nodeType === 3) node = node.parentNode;
+    while (node && node !== container) {
+      if (node.nodeType === 1 && node.classList && node.classList.contains('toponym')) {
+        hideButton();
+        return;
+      }
+      node = node.parentNode;
+    }
+
+    // === 1. ПРОВЕРКА РЕЖИМА ПРИВЯЗКИ (СТРОГО ПЕРВОЙ) ===
+    if (STATE.pendingRebindId) {
+      STATE.savedSelection = {
+        text: selectedText,
+        range: range.cloneRange()
+      };
+
+      btn.textContent = '✓ Привязать к топониму (' + selectedText.length + ' симв.)';
+      btn.className = 'btn primary';
+
+      btn.onclick = function(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        handleRebindSelection(selectedText, range.cloneRange());
+        hideButton();
+      };
+
+      var rect = range.getBoundingClientRect();
+      var btnRect = btn.getBoundingClientRect();
+      var top = rect.top - btnRect.height - 8;
+      var left = rect.left + (rect.width / 2) - (btnRect.width / 2);
+
+      if (left < 4) left = 4;
+      if (left + btnRect.width > window.innerWidth - 4) left = window.innerWidth - btnRect.width - 4;
+      if (top < 4) top = rect.bottom + 8;
+
+      btn.style.top = top + 'px';
+      btn.style.left = left + 'px';
+      btn.style.display = 'block';
+
+      return; // <--- КРИТИЧЕСКИ ВАЖНО: прерываем выполнение, чтобы не сработало "Добавить топоним"
+    }
+    // === КОНЕЦ ПРОВЕРКИ РЕЖИМА ПРИВЯЗКИ ===
+
+    // 2. Обычная логика: Копировать или Добавить
+    var isLongSelection = selectedText.length > CONFIG.copyButtonThreshold;
+
+    if (isLongSelection) {
+      btn.textContent = '📋 Копировать фрагмент (' + selectedText.length + ' симв.)';
+      btn.className = 'btn';
+      btn.onclick = function(e) {
+        e.stopPropagation();
+        navigator.clipboard.writeText(selectedText).then(function() {
+          alert('✅ Скопировано ' + selectedText.length + ' символов');
+        }).catch(function(err) {
+          var tempTextarea = document.createElement('textarea');
+          tempTextarea.value = selectedText;
+          document.body.appendChild(tempTextarea);
+          tempTextarea.select();
+          document.execCommand('copy');
+          document.body.removeChild(tempTextarea);
+          alert('✅ Скопировано ' + selectedText.length + ' символов');
+        });
+        hideButton();
+      };
+    } else {
+      btn.textContent = '➕ Добавить топоним';
+      btn.className = 'btn primary';
+      
+      // ВАЖНО: сохраняем выделение СРАЗУ, до клика
+      STATE.savedSelection = {
+        text: selectedText,
+        range: range.cloneRange()
+      };
+      
+      btn.onclick = function(e) {
+        e.stopPropagation();
+        if (STATE.savedSelection) {
+          addToponymFromSelection(STATE.savedSelection.text, STATE.savedSelection.range);
+        }
+        hideButton();
+      };
+    }
+
+    var rect = range.getBoundingClientRect();
+    var btnRect = btn.getBoundingClientRect();
+    var top = rect.top - btnRect.height - 8;
+    var left = rect.left + (rect.width / 2) - (btnRect.width / 2);
+
+    if (left < 4) left = 4;
+    if (left + btnRect.width > window.innerWidth - 4) left = window.innerWidth - btnRect.width - 4;
+    if (top < 4) top = rect.bottom + 8;
+
+    btn.style.top = top + 'px';
+    btn.style.left = left + 'px';
+    btn.style.display = 'block';
+  }
+
+  textContent.addEventListener('mouseup', function() { setTimeout(showButton, 10); });
+  document.addEventListener('selectionchange', function() { setTimeout(showButton, 10); });
+  document.addEventListener('mousedown', function(e) {
+    if (e.target !== btn) hideButton();
+  });
+})();
+
+function addToponymFromSelection(selectedText, range) {
+  var preCaretRange = range.cloneRange();
+  preCaretRange.selectNodeContents(document.getElementById('text-content'));
+  preCaretRange.setEnd(range.startContainer, range.startOffset);
+  var startOffset = preCaretRange.toString().length;
+  var endOffset = startOffset + selectedText.length;
+
+  if (startOffset < 0 || endOffset > STATE.text.length) {
+    alert('Ошибка: выделение выходит за границы текста.');
+    return;
+  }
+
+  var overlap = checkOverlap(startOffset, endOffset);
+  if (overlap) {
+    alert('Этот фрагмент пересекается с существующим топонимом: "' + overlap.text + '" (' + overlap.id + ').');
+    return;
+  }
+
+  var originalSlice = STATE.text.slice(startOffset, endOffset);
+  if (originalSlice !== selectedText) {
+    alert('Ошибка: выделенный текст не совпадает с оригиналом.');
+    return;
+  }
+
+  var ctxStart = Math.max(0, startOffset - 30);
+  var ctxEnd = Math.min(STATE.text.length, endOffset + 30);
+  var context = STATE.text.slice(ctxStart, ctxEnd);
+  
+  var contextBefore = STATE.text.slice(Math.max(0, startOffset - 20), startOffset);
+  var contextAfter = STATE.text.slice(endOffset, Math.min(STATE.text.length, endOffset + 20));
+  var newUid = generateUid(contextBefore, selectedText, contextAfter);
+  var newToponym = {
+    id: '',
+    originalId: getNextManualId(),
+    uid: newUid,
+    text: selectedText,
+    start: startOffset,
+    end: endOffset,
+    contextBefore: contextBefore,
+    contextAfter: contextAfter,
+    context: context,
+    status: 'suggested',
+    name: selectedText,
+    lat: null,
+    lon: null,
+    date: '',
+    note_date: '',
+    group: '',
+    description: '',
+    confidence: 1.0
+  };
+
+  STATE.data.push(newToponym);
+  recalculateGlobalIds();
+  recalculateOrder();
+  renderText();
+  renderTable();
+  
+  var addedToponym = STATE.data.find(function(t) { return t.originalId === newToponym.originalId; });
+  if (addedToponym) {
+    setActive(addedToponym.id);
+  }
+
+  setTimeout(function() {
+    var row = document.querySelector('#toponym-table tbody tr[data-id="' + (addedToponym ? addedToponym.id : '') + '"]');
+    if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 50);
+}
+function startRebindMode() {
+  // КРИТИЧЕСКИ ВАЖНО: сохраняем ID ДО вызова hideContextMenu,
+  // потому что hideContextMenu обнуляет contextMenuTargetId
+  var targetId = STATE.contextMenuTargetId;
+  
+  hideContextMenu();
+  
+  if (!targetId) {
+    console.warn('⚠️ startRebindMode: targetId пустой');
+    return;
+  }
+  
+  STATE.pendingRebindId = targetId;
+  
+  // Подсвечиваем строку
+  var row = document.querySelector('#toponym-table tbody tr[data-id="' + STATE.pendingRebindId + '"]');
+  if (row) {
+    row.classList.add('rebind-pending');
+    console.log('✅ Строка подсвечена для топонима:', STATE.pendingRebindId);
+  } else {
+    console.warn('⚠️ Строка не найдена для ID:', STATE.pendingRebindId);
+  }
+  
+  // Меняем курсор в тексте
+  var textContent = document.getElementById('text-content');
+  textContent.classList.add('rebind-mode');
+  
+  console.log('🔗 Режим привязки активирован для топонима:', STATE.pendingRebindId);
+}
+
+function exitRebindMode() {
+  if (!STATE.pendingRebindId) return;
+  
+  var row = document.querySelector('#toponym-table tbody tr[data-id="' + STATE.pendingRebindId + '"]');
+  if (row) row.classList.remove('rebind-pending');
+  
+  var textContent = document.getElementById('text-content');
+  textContent.classList.remove('rebind-mode');
+  
+  STATE.pendingRebindId = null;
+}
+
+function handleRebindSelection(selectedText, range) {
+  if (!STATE.pendingRebindId) return false;
+  
+  var success = bindToponymToSelection(STATE.pendingRebindId, selectedText, range);
+  
+  if (success) {
+    console.log('✅ Топоним привязан к выделению');
+    exitRebindMode();
+    renderText();
+    renderTable();
+    
+    // Активируем привязанный топоним
+    setActive(STATE.pendingRebindId || STATE.data.find(function(t) { 
+      return t.originalId === STATE.contextMenuTargetId; 
+    })?.id);
+  }
+  
+  return success;
+}
+</script>
+
+<!-- ============================================ -->
+<!-- БЛОК 09: SO_TABLE                            -->
+<!-- ============================================ -->
+<script>
+const TABLE_SCHEMA = {
+  text: [
+    { key: 'id', label: 'ID', width: '50px' },
+    { key: 'order', label: 'Order', width: '40px' },
+    { key: 'text', label: 'Текст', width: '120px' },
+    { key: 'status', label: 'Статус', width: '50px' },
+    { key: 'name', label: 'Название', width: '120px' },
+    { key: 'date', label: 'Дата', width: '80px' },
+    { key: 'group', label: 'Группа', width: '80px' },
+    { key: 'originalId', label: 'Orig ID', width: '50px' }
+  ],
+  full: [
+    { key: 'id', label: 'ID', width: '50px' },
+    { key: 'originalId', label: 'Orig ID', width: '60px' },
+    { key: 'uid', label: 'UID', width: '90px' },
+    { key: 'text', label: 'Текст', width: '100px' },
+    { key: 'name', label: 'Название', width: '100px' },
+    { key: 'start', label: 'Start', width: '50px' },
+    { key: 'end', label: 'End', width: '50px' },
+    { key: 'contextBefore', label: 'Контекст слева', width: '120px' },
+    { key: 'contextAfter', label: 'Контекст справа', width: '120px' },
+    { key: 'context', label: 'Контекст', width: '150px' },
+    { key: 'status', label: 'Статус', width: '60px' },
+    { key: 'coords', label: 'Координаты', width: '100px' },
+    { key: 'date', label: 'Дата', width: '80px' },
+    { key: 'note_date', label: 'Прим. даты', width: '120px' },
+    { key: 'group', label: 'Группа', width: '80px' },
+    { key: 'order', label: 'Order', width: '50px' },
+    { key: 'description', label: 'Описание', width: '150px' },
+    { key: 'confidence', label: 'Conf', width: '40px' }
+  ],
+  va: [
+    { key: 'id', label: 'ID', width: '50px' },
+    { key: 'order', label: 'order', width: '50px' },
+    { key: 'status', label: 'Статус', width: '60px' },
+    { key: 'name', label: 'name', width: '120px' },
+    { key: 'coords', label: 'Координаты', width: '100px' },
+    { key: 'date', label: 'date', width: '80px' },
+    { key: 'group', label: 'group', width: '80px' },
+    { key: 'description', label: 'description', width: '150px' },
+    { key: 'originalId', label: 'Orig ID', width: '60px' },
+  ]
+};
+
+function getCurrentSchema() {
+  const mode = document.getElementById('table-mode').value;
+  let schema = [...(TABLE_SCHEMA[mode] || TABLE_SCHEMA.text)];
+
+  if (mode !== 'va') {
+    STATE.customColumns.forEach(col => {
+      schema.push({ key: col, label: col, width: '100px', custom: true });
+    });
+  }
+
+  return schema;
+}
+
+function renderTable() {
+  const tbody = document.getElementById('table-body');
+  const theadRow = document.getElementById('table-header-row');
+  const schema = getCurrentSchema();
+
+  theadRow.innerHTML = schema.map(col => {
+    const deleteBtn = col.custom ? `<span class="col-delete" onclick="deleteCustomColumn('${col.key}', event)" title="Удалить колонку">×</span>` : '';
+    return `<th style="width:${col.width};">${escapeHtml(col.label)}${deleteBtn}</th>`;
+  }).join('');
+
+  if (!STATE.data.length) {
+    tbody.innerHTML = `<tr><td colspan="${schema.length}" style="text-align:center;color:#999;padding:40px;">Нет данных</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = STATE.data.map((t, i) => {
+    const active = t.id === STATE.activeId ? 'active' : '';
+    const hidden = isFiltered(t) ? 'hidden' : '';
+
+    const cells = schema.map(col => {
+      let value = '';
+      let editable = false;
+
+      if (col.key === 'status') {
+        return `<td onclick="event.stopPropagation();">${buildStatusSelect(t.status, t.id)}</td>`;
+      }
+
+      if (col.custom) {
+        value = t[col.key] || '';
+        editable = true;
+      } else if (col.key === 'coords') {
+      // Специальная логика для объединенных координат
+        var latVal = (t.lat !== null && t.lat !== undefined) ? t.lat : '';
+        var lonVal = (t.lon !== null && t.lon !== undefined) ? t.lon : '';
+        value = (latVal && lonVal) ? (latVal + ', ' + lonVal) : (latVal || lonVal || '');
+        editable = true;
+
+      } else if (col.key === 'date') {
+        // Красивое отображение даты, но редактирование в сыром формате
+        value = formatDateForDisplay(t.date);
+        editable = true;
+
+      } else {
+        value = t[col.key];
+        if (value === null || value === undefined) value = '';
+        editable = ['name', 'note_date', 'group', 'order', 'description', 'context'].includes(col.key);
+      }
+      // Обработка пустых start/end
+      if ((col.key === 'start' || col.key === 'end') && (value === null || value === undefined || value === '')) {
+        return `<td class="empty-pos">—</td>`;
+      }
+      const editableAttr = editable ? 'contenteditable="true"' : '';
+      const onfocus = (editable && col.key === 'date') ? `onfocus="this.innerText='${escapeHtml(String(t.date || ''))}'"` : '';
+      const onblur = editable ? `onblur="updateField('${t.id}','${col.key}',this.innerText); renderTable()"` : '';
+      const wrapClass = (col.key === 'context' || col.key === 'description' || col.key === 'contextBefore' || col.key === 'contextAfter' || col.key === 'note_date') ? 'wrap' : '';
+
+      return `<td class="${wrapClass} ${editable ? 'editable' : ''}" ${editableAttr} ${onfocus} ${onblur}>${escapeHtml(String(value))}</td>`;
+    }).join('');
+
+    return `<tr class="${active} ${hidden}" data-id="${t.id}" onclick="onRowClick('${t.id}', event)" oncontextmenu="showContextMenu(event, '${t.id}')">${cells}</tr>`;
+  }).join('');
+
+  updateStats();
+}
+function showContextMenu(event, toponymId) {
+  event.preventDefault();
+  event.stopPropagation();
+  hideTextContextMenu();
+  STATE.contextMenuTargetId = toponymId;
+  
+  var menu = document.getElementById('table-context-menu');
+  menu.style.display = 'block';
+  menu.style.left = event.clientX + 'px';
+  menu.style.top = event.clientY + 'px';
+}
+
+function hideContextMenu() {
+  var menu = document.getElementById('table-context-menu');
+  menu.style.display = 'none';
+  STATE.contextMenuTargetId = null;
+}
+
+// Глобальный обработчик скрытия меню
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#table-context-menu')) {
+    hideContextMenu();
+  }
+  if (!e.target.closest('#text-context-menu')) {
+    hideTextContextMenu();
+  }
+});
+
+function onRowClick(id, event) {
+  if (event && event.target.isContentEditable) return;
+  setActive(id);
+  scrollToToponym(id);
+}
+
+function isFiltered(t) {
+  const showConfirmed = document.getElementById('filter-confirmed').checked;
+  const showSuggested = document.getElementById('filter-suggested').checked;
+  const showRejected = document.getElementById('filter-rejected').checked;
+  const searchText = document.getElementById('filter-text').value.toLowerCase();
+
+  const status = t.status || 'suggested';
+  if (status === 'confirmed' && !showConfirmed) return true;
+  if (status === 'suggested' && !showSuggested) return true;
+  if (status === 'rejected' && !showRejected) return true;
+
+  if (searchText) {
+    const hay = (t.text + ' ' + t.name + ' ' + t.group + ' ' + t.id).toLowerCase();
+    if (!hay.includes(searchText)) return true;
+  }
+
+  return false;
+}
+
+function applyFilters() {
+  renderTable();
+}
+
+function updateField(id, field, value) {
+  var t = STATE.data.find(function(x) { return x.id === id; });
+  if (!t) return;
+  value = value.trim();
+  if (field === 'coords') {
+    var parts = value.split(/[,;\s]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      var lat = parseFloat(parts[0]);
+      var lon = parseFloat(parts[1]);
+      t.lat = isNaN(lat) ? null : lat;
+      t.lon = isNaN(lon) ? null : lon;
+    } else if (parts.length === 1) {
+      var val = parseFloat(parts[0]);
+      t.lat = isNaN(val) ? null : val;
+    } else {
+      t.lat = null;
+      t.lon = null;
+    }
+  } else if (field === 'lat' || field === 'lon') {
+    var num = parseFloat(value);
+    t[field] = (value === '' || isNaN(num)) ? null : num;
+  } else {
+    t[field] = value;
+  }
+}
+
+function setStatus(id, status) {
+  var t = STATE.data.find(function(x) { return x.id === id; });
+  if (t) {
+    t.status = status;
+    recalculateOrder();
+    renderText();
+    renderTable();
+  }
+}
+
+function buildStatusSelect(currentStatus, id) {
+  var statuses = [
+    { val: 'confirmed', label: '✅', cls: 'badge-confirmed' },
+    { val: 'suggested', label: '🤔', cls: 'badge-suggested' },
+    { val: 'rejected', label: '❌', cls: 'badge-rejected' }
+  ];
+  var html = '<select class="status-select" onchange="setStatus(\'' + id + '\', this.value); this.blur();" onclick="event.stopPropagation();">';
+  for (var i = 0; i < statuses.length; i++) {
+    var s = statuses[i];
+    var selected = (currentStatus === s.val || (!currentStatus && s.val === 'suggested')) ? ' selected' : '';
+    html += '<option value="' + s.val + '"' + selected + '>' + s.label + '</option>';
+  }
+  html += '</select>';
+  return html;
+}
+
+function addCustomColumn() {
+  const name = prompt('Введите название новой колонки:');
+  if (!name || !name.trim()) return;
+
+  const key = name.trim().toLowerCase().replace(/\s+/g, '_');
+
+  if (TABLE_SCHEMA.text.some(c => c.key === key) || 
+      TABLE_SCHEMA.full.some(c => c.key === key) ||
+      TABLE_SCHEMA.va.some(c => c.key === key) ||
+      STATE.customColumns.includes(key)) {
+    alert('Колонка с таким названием уже существует!');
+    return;
+  }
+
+  STATE.customColumns.push(key);
+  STATE.data.forEach(t => { if (!(key in t)) t[key] = ''; });
+  renderTable();
+}
+
+function deleteCustomColumn(key, event) {
+  event.stopPropagation();
+  event.preventDefault();
+
+  if (!confirm(`Удалить колонку "${key}"?
+
+Все данные в этой колонке будут безвозвратно удалены.`)) {
+    return;
+  }
+
+  STATE.customColumns = STATE.customColumns.filter(c => c !== key);
+  STATE.data.forEach(t => { delete t[key]; });
+  renderTable();
+}
+
+function setActive(id) {
+  STATE.activeId = id;
+
+  document.querySelectorAll('.toponym').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === id);
+  });
+
+  document.querySelectorAll('#toponym-table tbody tr').forEach(tr => {
+    tr.classList.toggle('active', tr.dataset.id === id);
+  });
+
+  const row = document.querySelector(`#toponym-table tbody tr[data-id="${id}"]`);
+  if (row && !row.classList.contains('hidden')) {
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function scrollToToponym(id) {
+  const span = document.querySelector(`.toponym[data-id="${id}"]`);
+  if (span) {
+    span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+}
+
+function toggleSync() {
+  STATE.config.syncScroll = !STATE.config.syncScroll;
+  document.getElementById('btn-sync').classList.toggle('active', STATE.config.syncScroll);
+}
+
+let scrollTimeout;
+document.getElementById('text-content').addEventListener('scroll', () => {
+  if (!STATE.config.syncScroll) return;
+  clearTimeout(scrollTimeout);
+  scrollTimeout = setTimeout(() => {
+    const container = document.getElementById('text-content');
+    const center = container.scrollTop + container.clientHeight / 2;
+
+    let closest = null;
+    let minDist = Infinity;
+
+    document.querySelectorAll('.toponym').forEach(el => {
+      const dist = Math.abs(el.offsetTop - center);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = el.dataset.id;
+      }
+    });
+
+    if (closest && closest !== STATE.activeId) {
+      setActive(closest);
+    }
+  }, 150);
+});
+
+document.addEventListener('keydown', function(e) {
+  if (!STATE.activeId) return;
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT' || e.target.isContentEditable) return;
+
+  if (e.key === '1') { e.preventDefault(); setStatus(STATE.activeId, 'confirmed'); }
+  if (e.key === '2') { e.preventDefault(); setStatus(STATE.activeId, 'suggested'); }
+  if (e.key === '3') { e.preventDefault(); setStatus(STATE.activeId, 'rejected'); }
+});
+
+function updateInfo() {
+  const info = document.getElementById('text-info');
+  const stats = document.getElementById('text-stats');
+
+  if (STATE.text) {
+    info.textContent = 'Текст: ' + STATE.text.length.toLocaleString() + ' симв.';
+  }
+  updateStats();
+}
+
+function updateStats() {
+  const stats = document.getElementById('text-stats');
+  const total = STATE.data.length;
+  const confirmed = STATE.data.filter(t => t.status === 'confirmed').length;
+  const suggested = STATE.data.filter(t => t.status === 'suggested').length;
+  const rejected = STATE.data.filter(t => t.status === 'rejected').length;
+  stats.innerHTML = 'Всего: <b>' + total + '</b> | ✅' + confirmed + ' | 🤔' + suggested + ' | ❌' + rejected;
+}
+</script>
+
+<!-- ============================================ -->
+<!-- БЛОК 10: SO_EXPORT                           -->
+<!-- ============================================ -->
+<script>
+
+
+function buildProjectToponyms(list) {
+  return list.map(t => ({
+    id: t.originalId || t.id,
+    uid: t.uid || '',
+    text: t.text || '',
+    context_before: t.contextBefore || '',
+    context_after: t.contextAfter || '',
+    name: t.name || '',
+    start: t.start,
+    end: t.end,
+    status: t.status || 'suggested',
+    lat: t.lat,
+    lon: t.lon,
+    date: t.date || '',
+    note_date: t.note_date || '',
+    group: t.group || '',
+    description: t.description || '',
+    note: t.note || '',
+    confidence: t.confidence || 1.0
+  }));
+}
+function exportMarkup() {
+  syncDataToMarkup();
+  var markup = {
+    format: 'SOVA-MARKUP',
+    version: '0.3',
+    source: STATE.textFileName || 'sova.txt',
+    textHash: STATE.textHash,
+    toponyms: STATE.data.map(t => ({
+      id: t.originalId || t.id,
+      uid: t.uid || '',
+      text: t.text || '',
+      context_before: t.contextBefore || '',
+      context_after: t.contextAfter || '',
+      name: t.name || '',
+      start: t.start,
+      end: t.end,
+      status: t.status || 'suggested'
+    }))
+  };
+  download('markup.sova.json', JSON.stringify(markup, null, 2), 'application/json');
+  setVaStatus('📦 Разметка сохранена: markup.sova.json', 'ok');
+}
+function exportProject() {
+  syncDataToMarkup();
+  var project = {
+    format: 'SOVA-PROJECT',
+    version: '0.4',
+    source: STATE.textFileName || 'sova.txt',
+    textHash: STATE.textHash,
+    toponyms: buildProjectToponyms(STATE.data)
+  };
+  download('project.sova.json', JSON.stringify(project, null, 2), 'application/json');
+  setVaStatus('💾 Проект сохранён: project.sova.json', 'ok');
+}
+function exportCleanJSON() {
+  syncDataToMarkup();
+  var cleanData = STATE.data.filter(t => t.status !== 'rejected');
+  var project = {
+    format: 'SOVA-PROJECT',
+    version: '0.4',
+    source: STATE.textFileName || 'sova.txt',
+    textHash: STATE.textHash,
+    toponyms: buildProjectToponyms(cleanData)
+  };
+  download('clear.sova.json', JSON.stringify(project, null, 2), 'application/json');
+  setVaStatus('🧹 Чистый файл: clear.sova.json (' + cleanData.length + ' из ' + STATE.data.length + ')', 'ok');
+}
+function toggleDownloadMenu() {
+  var menu = document.getElementById('download-menu');
+  menu.classList.toggle('open');
+}
+function hideDownloadMenu() {
+  var menu = document.getElementById('download-menu');
+  menu.classList.remove('open');
+}
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('#download-menu') && !e.target.closest('#download-btn')) {
+    hideDownloadMenu();
+  }
+});
+function exportForVA() {
+  var rows = [];
+  for (var i = 0; i < STATE.data.length; i++) {
+    var t = STATE.data[i];
+    if (t.status !== 'rejected') {
+      var name = escapeCSV(t.name || t.text);
+      var lat = (t.lat !== null && t.lat !== undefined) ? t.lat : '';
+      var lon = (t.lon !== null && t.lon !== undefined) ? t.lon : '';
+      var date = escapeCSV(t.date || '');
+      var group = escapeCSV(t.group || '');
+      var order = t.order !== undefined ? t.order : '';
+      var desc = escapeCSV(t.description || '');
+      var noteDate = escapeCSV(t.note_date || '');
+      var uid = escapeCSV
+      rows.push([name, lat, lon, date, group, order, desc, noteDate, uid].join(','));
+    }
+  }
+  var csv = 'name,lat,lon,date,group,order,description,note_date,uid\n' + rows.join('\n');
+  download('sova_va_export.csv', '﻿' + csv, 'text/csv;charset=utf-8;');
+}
+
+function exportFullCSV() {
+  var baseHeaders = ['id','text','start','end','context','type','status','name','lat','lon','date','group','order','description','confidence'];
+  var customHeaders = STATE.customColumns;
+  var headers = baseHeaders.concat(customHeaders);
+
+  var rows = [];
+  for (var i = 0; i < STATE.data.length; i++) {
+    var t = STATE.data[i];
+    var row = [
+      t.id,
+      escapeCSV(t.text || ''),
+      t.start !== undefined ? t.start : '',
+      t.end !== undefined ? t.end : '',
+      escapeCSV(t.context || ''),
+      t.type || '',
+      t.status || 'suggested',
+      escapeCSV(t.name || ''),
+      (t.lat !== null && t.lat !== undefined) ? t.lat : '',
+      (t.lon !== null && t.lon !== undefined) ? t.lon : '',
+      escapeCSV(t.date || ''),
+      escapeCSV(t.group || ''),
+      t.order !== undefined ? t.order : '',
+      escapeCSV(t.description || ''),
+      t.confidence !== undefined ? t.confidence : ''
+    ];
+    customHeaders.forEach(col => {
+      row.push(escapeCSV(t[col] || ''));
+    });
+    rows.push(row.join(','));
+  }
+  var csv = headers.join(',') + '\n' + rows.join('\n');
+  download('sova_full_export.csv', '﻿' + csv, 'text/csv;charset=utf-8;');
+}
+</script>
+
+<!-- ============================================ -->
+<!-- БЛОК 11: VA_MAP                              -->
+<!-- ============================================ -->
+<script>
+const vaGroupColors = {
+  'main': '#e94560',
+  'default': '#5dade2',
+  'secondary': '#f39c12',
+  'important': '#9b59b6',
+  'city': '#e94560',
+  'water': '#5dade2',
+  'landscape': '#27ae60',
+  'building': '#f39c12',
+  'street': '#9b59b6',
+  'region': '#e74c3c',
+  'country': '#34495e',
+  'district': '#16a085',
+  'transport': '#d35400',
+  'other': '#95a5a6'
+};
+
+function getVaGroupColor(group) {
+  if (!vaGroupColors[group]) {
+    const hue = (group.split('').reduce((a, b) => a + b.charCodeAt(0), 0) * 137) % 360;
+    vaGroupColors[group] = 'hsl(' + hue + ', 70%, 60%)';
+  }
+  return vaGroupColors[group];
+}
+
+function initVaMap() {
+  if (vaMap) return;
+  vaMap = L.map('va-map', { attributionControl: false }).setView([55, 95], 5);
+  L.tileLayer('https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a> | &copy; <a href="https://wikimediafoundation.org/" target="_blank" rel="noopener">Wikimedia</a>',
+    maxZoom: 17
+  }).addTo(vaMap);
+  // Обновляем координаты центра при движении карты
+  vaMap.on('moveend', function() {
+    var center = vaMap.getCenter();
+    var coordsInput = document.getElementById('va-search-coords');
+    if (coordsInput) {
+      coordsInput.value = center.lat.toFixed(4) + ', ' + center.lng.toFixed(4);
+    }
+  });
+  // Инициализируем значение сразу
+  var initialCenter = vaMap.getCenter();
+  var coordsInput = document.getElementById('va-search-coords');
+  if (coordsInput) {
+    coordsInput.value = initialCenter.lat.toFixed(4) + ', ' + initialCenter.lng.toFixed(4);
+  }
+}
+
+function buildVaMap() {
+  initVaMap();
+  initVaTimelineDrag();
+
+  const vaData = dataToVaFormat();
+
+  if (vaData.length === 0) {
+    setVaStatus('Нет данных с координатами. Заполните lat/lon в таблице.', 'error');
+    return;
+  }
+
+  resetVaMap();
+
+  STATE.vaRawData = vaData;
+  STATE.vaGroups = new Set(vaData.map(d => d.group));
+  STATE.vaDatePrecision = detectVaDatePrecision(vaData);
+
+  calcVaDateRange();
+  buildVaTimeline();
+  buildVaSteps();
+
+  STATE.vaCurrentStepIndex = 0;
+  STATE.vaCurrentFrame = 0;
+  STATE.vaLastRenderedProgress = -1;
+  STATE.vaRenderedPointIds.clear();
+  STATE.vaRenderedLineKeys.clear();
+
+  // Initial render at 0
+  renderVaAtProgress(0, true);
+
+  // Fit bounds
+  const bounds = vaData.map(p => [p.lat, p.lon]);
+  vaMap.fitBounds(bounds, { padding: [50, 50] });
+  STATE.vaBaseZoom = vaMap.getZoom();
+  updateVaLegend();
+  setVaStatus('✅ ' + vaData.length + ' точек. Режим: ' + (STATE.vaTimelineMode === 'time' ? 'Время' : 'События'), 'ok');
+  document.getElementById('va-play-btn').disabled = false;
+
+  // Update preview
+  const preview = vaData.slice(0, 5).map(p => p.name).join(', ');
+  document.getElementById('va-data-preview').textContent = 
+    vaData.length + ' точек: ' + preview + (vaData.length > 5 ? '...' : '');
+}
+
+function resetVaMap() {
+  STATE.vaMarkers.forEach(m => vaMap.removeLayer(m));
+  STATE.vaLines.forEach(l => vaMap.removeLayer(l));
+  STATE.vaMarkers = [];
+  STATE.vaLines = [];
+}
+
+function calcVaDateRange() {
+  const dated = STATE.vaRawData.filter(p => p.date);
+  if (dated.length === 0) {
+    STATE.vaMinDate = new Date();
+    STATE.vaMaxDate = new Date();
+    return;
+  }
+  STATE.vaMinDate = new Date(Math.min(...dated.map(p => p.date)));
+  STATE.vaMaxDate = new Date(Math.max(...dated.map(p => p.date)));
+}
+
+function updateVaLegend() {
+  const legend = document.getElementById('va-legend');
+  if (STATE.vaGroups.size <= 1) {
+    legend.style.display = 'none';
+    return;
+  }
+
+  legend.innerHTML = '<div style="font-weight:bold; margin-bottom:6px; color:var(--va-accent);">Группы</div>';
+  STATE.vaGroups.forEach(g => {
+    legend.innerHTML += '<div class="va-legend-item"><div class="va-legend-dot" style="background:' + getVaGroupColor(g) + ';"></div><span>' + g + '</span></div>';
+  });
+  legend.style.display = 'block';
+}
+
+function setVaStatus(msg, type) {
+  const el = document.getElementById('va-status');
+  el.textContent = msg;
+  el.className = 'va-status ' + type;
+}
+
+function setVaMode(mode) {
+  STATE.vaTimelineMode = mode;
+}
+function setVaZoomLock(locked) {
+  STATE.vaZoomLocked = !!locked;
+}
+// --- VA SEARCH LOGIC ---
+const vaSearchInput = document.getElementById('va-search-input');
+const vaSearchResults = document.getElementById('va-search-results');
+const vaSearchClear = document.getElementById('va-search-clear');
+const vaSearchCoords = document.getElementById('va-search-coords');
+
+if (vaSearchInput) {
+    vaSearchInput.addEventListener('input', () => {
+        vaSearchClear.style.display = vaSearchInput.value ? 'block' : 'none';
+    });
+    
+    vaSearchInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') performVaSearch();
+    });
+}
+
+if (vaSearchClear) {
+    vaSearchClear.addEventListener('click', clearVaSearch);
+}
+
+if (vaSearchResults) {
+    vaSearchResults.addEventListener('change', (e) => {
+        const index = e.target.value;
+        if (index !== '') selectSearchResult(index);
+    });
+}
+
+async function performVaSearch() {
+    const query = vaSearchInput.value.trim();
+    if (!query) return;
+    
+    setVaStatus('🔍 Поиск...', 'info');
+    try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+        const data = await response.json();
+        
+        vaSearchResults.innerHTML = '';
+        if (data.length > 0) {
+            if (data.length === 1) {
+                selectSearchResult(0, data);
+            } else {
+                vaSearchResults.style.display = 'block';
+                data.forEach((item, idx) => {
+                    const option = document.createElement('option');
+                    option.value = idx;
+                    option.textContent = item.display_name;
+                    vaSearchResults.appendChild(option);
+                });
+                setVaStatus(`Найдено ${data.length} вариантов`, 'ok');
+            }
+        } else {
+            setVaStatus('Ничего не найдено', 'error');
+        }
+    } catch (err) {
+        setVaStatus('Ошибка поиска', 'error');
+        console.error(err);
+    }
+}
+
+function selectSearchResult(index, dataCache) {
+    if (!dataCache && STATE.lastSearchResults) {
+        dataCache = STATE.lastSearchResults;
+    }
+    
+
+    const item = dataCache[index];
+    if (!item) return;
+    
+    const lat = parseFloat(item.lat);
+    const lon = parseFloat(item.lon);
+    
+    // Центрируем карту
+    vaMap.flyTo([lat, lon], 13);
+    
+    // Ставим маркер
+    if (STATE.vaSearchMarker) {
+        vaMap.removeLayer(STATE.vaSearchMarker);
+    }
+    
+    STATE.vaSearchMarker = L.marker([lat, lon]).addTo(vaMap);
+    
+    if (vaSearchCoords) {
+      vaSearchCoords.value = lat.toFixed(4) + ', ' + lon.toFixed(4);
+    }
+    
+    setVaStatus('Результат выбран', 'ok');
+}
+
+// Доработка performVaSearch для сохранения результатов
+const _originalPerformVaSearch = performVaSearch;
+performVaSearch = async function() {
+    const query = vaSearchInput.value.trim();
+    if (!query) return;
+    
+    setVaStatus('🔍 Поиск...', 'info');
+    try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+        const data = await response.json();
+        STATE.lastSearchResults = data; // Сохраняем
+        
+        vaSearchResults.innerHTML = '';
+        if (data.length > 0) {
+            if (data.length === 1) {
+                selectSearchResult(0, data);
+            } else {
+                vaSearchResults.style.display = 'block';
+                data.forEach((item, idx) => {
+                    const option = document.createElement('option');
+                    option.value = idx;
+                    option.textContent = item.display_name;
+                    vaSearchResults.appendChild(option);
+                });
+                setVaStatus(`Найдено ${data.length} вариантов`, 'ok');
+            }
+        } else {
+            setVaStatus('Ничего не найдено', 'error');
+        }
+    } catch (err) {
+        setVaStatus('Ошибка поиска', 'error');
+        console.error(err);
+    }
+};
+
+function clearVaSearch() {
+    vaSearchInput.value = '';
+    vaSearchResults.style.display = 'none';
+    vaSearchClear.style.display = 'none';
+    if (vaSearchCoords) vaSearchCoords.value = '';
+    
+    if (STATE.vaSearchMarker) {
+        vaMap.removeLayer(STATE.vaSearchMarker);
+        STATE.vaSearchMarker = null;
+    }
+    setVaStatus('Поиск очищен', 'info');
+}
+
+function copyVaCoords() {
+  var input = document.getElementById('va-search-coords');
+  var text = input ? input.value : '';
+  if (!text) {
+    setVaStatus('Нет координат для копирования', 'info');
+    return;
+  }
+  function ok() {
+    setVaStatus('📋 Координаты скопированы', 'ok');
+  }
+  function legacyCopy() {
+    input.focus();
+    input.select();
+    try {
+      document.execCommand('copy');
+      ok();
+    } catch (err) {
+      alert('Не удалось скопировать. Выделите текст вручную.');
+    }
+    input.blur();
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(ok).catch(legacyCopy);
+  } else {
+    legacyCopy();
+  }
+}
+</script>
+
+<!-- ============================================ -->
+
+<!-- ============================================ -->
+<!-- БЛОК 12: VA_TIMELINE                         -->
+<!-- ============================================ -->
+<script>
+// 12.01 TRACK
+function seekTimeline(event) {
+  if (STATE.vaIsDragging) return;
+  if (STATE.vaIsPlaying) pauseVaAnimation();
+
+  const track = document.getElementById('va-timeline-track');
+  if (!track) return;
+  const rect = track.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const progress = Math.max(0, Math.min(1, x / rect.width));
+
+  goToVaProgress(progress);
+}
+
+function startVaDrag(event) {
+  STATE.vaIsDragging = true;
+  if (STATE.vaIsPlaying) pauseVaAnimation();
+  event.preventDefault();
+  event.stopPropagation();
+}
+
+function initVaTimelineDrag() {
+  document.addEventListener('mousemove', (e) => {
+    if (!STATE.vaIsDragging) return;
+
+    const track = document.getElementById('va-timeline-track');
+    if (!track) return;
+    const rect = track.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    const progress = x / rect.width;
+
+    document.getElementById('va-timeline-fill').style.width = (progress * 100) + '%';
+    document.getElementById('va-timeline-thumb').style.left = (progress * 100) + '%';
+
+    const currentDate = getVaDateFromProgress(progress);
+    document.getElementById('va-timeline-date').textContent = formatVaDate(currentDate, STATE.vaDatePrecision);
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (STATE.vaIsDragging) {
+      STATE.vaIsDragging = false;
+      const thumb = document.getElementById('va-timeline-thumb');
+      if (thumb) {
+        const progress = parseFloat(thumb.style.left) / 100;
+        goToVaProgress(progress);
+      }
+    }
+  });
+}
+
+function goToVaProgress(progress) {
+  if (STATE.vaTimelineMode === 'event') {
+    const datedPoints = STATE.vaRawData.filter(p => p.date).sort((a, b) => a.date - b.date);
+    const undatedPoints = STATE.vaRawData.filter(p => !p.date).sort((a, b) => (a.order || 0) - (b.order || 0));
+    const allPoints = [...datedPoints, ...undatedPoints];
+
+    if (allPoints.length === 0) {
+      renderVaAtProgress(0, true);
+      return;
+    }
+
+    let closestIdx = 0;
+    let minDiff = Infinity;
+
+    for (let i = 0; i < allPoints.length; i++) {
+      const p = allPoints[i];
+      let pointProgress;
+      if (p.date) {
+        pointProgress = getVaProgressFromDate(p.date);
+      } else {
+        pointProgress = 1;
+      }
+      const diff = Math.abs(pointProgress - progress);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestIdx = i;
+      }
+    }
+
+    STATE.vaCurrentStepIndex = closestIdx;
+    const stepProgress = (closestIdx + 1) / allPoints.length;
+    renderVaAtProgress(stepProgress, true);
+    return;
+  }
+
+  if (STATE.vaSteps.length === 0) {
+    renderVaAtProgress(progress, true);
+    return;
+  }
+
+  let closestIdx = 0;
+  let minDiff = Infinity;
+  for (let i = 0; i < STATE.vaSteps.length; i++) {
+    const diff = Math.abs(STATE.vaSteps[i] - progress);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closestIdx = i;
+    }
+  }
+
+  STATE.vaCurrentStepIndex = closestIdx;
+  renderVaAtProgress(STATE.vaSteps[closestIdx], true);
+}
+
+// 12.02 SCALE
+function generateVaTicks(minDate, maxDate, count) {
+  const ticks = [];
+  const range = maxDate - minDate;
+  for (let i = 0; i <= count; i++) {
+    const progress = i / count;
+    const date = new Date(minDate.getTime() + range * progress);
+    ticks.push({ date, progress, label: formatVaTickLabel(date, minDate, maxDate) });
+  }
+  return ticks;
+}
+
+function formatVaTickLabel(date, minDate, maxDate) {
+  const rangeYears = (maxDate - minDate) / (1000 * 60 * 60 * 24 * 365);
+  if (rangeYears < 1) return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+  if (rangeYears < 10) return date.toLocaleDateString('ru-RU', { year: 'numeric', month: 'short' });
+  return date.getFullYear().toString();
+}
+
+function buildVaTimeline() {
+  const tickContainer = document.getElementById('va-timeline-ticks');
+  const eventContainer = document.getElementById('va-timeline-events');
+  if (tickContainer) tickContainer.innerHTML = '';
+  if (eventContainer) eventContainer.innerHTML = '';
+
+  if (!STATE.vaMinDate || !STATE.vaMaxDate) return;
+
+  // Ticks (20 even)
+  const ticks = generateVaTicks(STATE.vaMinDate, STATE.vaMaxDate, 20);
+  ticks.forEach(tick => {
+    const el = document.createElement('div');
+    el.className = 'va-tick';
+    el.style.left = (tick.progress * 100) + '%';
+    el.innerHTML = '<div class="va-tick-line"></div><div class="va-tick-label">' + tick.label + '</div>';
+    if (tickContainer) tickContainer.appendChild(el);
+  });
+
+  // Event points
+  const datedPoints = STATE.vaRawData.filter(p => p.date);
+  datedPoints.forEach(point => {
+    const progress = getVaProgressFromDate(point.date);
+    const el = document.createElement('div');
+    el.className = 'va-event-point';
+    el.style.left = (progress * 100) + '%';
+    el.title = (point.order || '') + '. ' + point.name + ' — ' + formatVaDate(point.date, STATE.vaDatePrecision);
+    el.onclick = (e) => {
+      e.stopPropagation();
+      if (STATE.vaIsPlaying) pauseVaAnimation();
+      const targetProgress = getVaProgressFromDate(point.date);
+      goToVaProgress(targetProgress);
+    };
+    if (eventContainer) eventContainer.appendChild(el);
+  });
+
+  document.getElementById('va-timeline-range').textContent = 
+    formatVaDate(STATE.vaMinDate, STATE.vaDatePrecision) + ' — ' + formatVaDate(STATE.vaMaxDate, STATE.vaDatePrecision);
+}
+
+function updateVaTimeline(progress, visualProgress) {
+  let vp = visualProgress !== null ? visualProgress : progress;
+  vp = Math.max(0, Math.min(1, vp));
+
+  const fill = document.getElementById('va-timeline-fill');
+  const thumb = document.getElementById('va-timeline-thumb');
+  if (fill) fill.style.width = (vp * 100) + '%';
+  if (thumb) thumb.style.left = (vp * 100) + '%';
+
+  const currentDate = getVaDateFromProgress(progress);
+  const dateEl = document.getElementById('va-timeline-date');
+  if (dateEl) dateEl.textContent = formatVaDate(currentDate, STATE.vaDatePrecision);
+
+  document.querySelectorAll('.va-event-point').forEach(el => {
+    const pointProgress = parseFloat(el.style.left) / 100;
+    el.classList.toggle('active', pointProgress <= vp);
+  });
+}
+
+function getVaDateFromProgress(progress) {
+  if (!STATE.vaMinDate || !STATE.vaMaxDate) return new Date();
+  const range = STATE.vaMaxDate - STATE.vaMinDate;
+  return new Date(STATE.vaMinDate.getTime() + range * progress);
+}
+
+function getVaProgressFromDate(date) {
+  if (!STATE.vaMinDate || !STATE.vaMaxDate || !date) return 1;
+  const range = STATE.vaMaxDate - STATE.vaMinDate;
+  if (range === 0) return 0;
+  return (date - STATE.vaMinDate) / range;
+}
+
+function detectVaDatePrecision(data) {
+  let hasMonth = false, hasDay = false;
+  for (const d of data) {
+    if (!d.date) continue;
+    if (d.date.getMonth() !== 0 || d.date.getDate() !== 1) hasDay = true;
+    if (d.date.getMonth() !== 0) hasMonth = true;
+  }
+  if (hasDay) return 'full';
+  if (hasMonth) return 'month';
+  return 'year';
+}
+
+function formatVaDate(date, precision) {
+  if (!date) return '—';
+  if (precision === 'full') return date.toLocaleDateString('ru-RU');
+  if (precision === 'month') return date.toLocaleDateString('ru-RU', { year: 'numeric', month: 'short' });
+  return date.getFullYear().toString();
+}
+</script>
+
+<!-- ============================================ -->
+<!-- БЛОК 13: VA_ANIMATION                        -->
+<!-- ============================================ -->
+<script>
+// 13.01 STEPS
+function buildVaSteps() {
+  STATE.vaSteps = [];
+
+  if (STATE.vaTimelineMode === 'time') {
+    for (let i = 0; i <= 20; i++) {
+      STATE.vaSteps.push(i / 20);
+    }
+  } else {
+    const sorted = [...STATE.vaRawData].sort((a, b) => {
+      if (a.date && b.date) {
+        if (a.date.getTime() !== b.date.getTime()) return a.date - b.date;
+        return (a.order || 0) - (b.order || 0);
+      }
+      if (a.date && !b.date) return -1;
+      if (!a.date && b.date) return 1;
+      return (a.order || 0) - (b.order || 0);
+    });
+
+    const total = sorted.length;
+    for (let i = 1; i <= total; i++) {
+      STATE.vaSteps.push(i / total);
+    }
+  }
+  STATE.vaCurrentStepIndex = 0;
+}
+
+function getVaCurrentStepProgress() {
+  if (STATE.vaSteps.length === 0) return 0;
+  return STATE.vaSteps[Math.min(STATE.vaCurrentStepIndex, STATE.vaSteps.length - 1)];
+}
+
+// 13.02 PLAYBACK
+function startVaAnimation() {
+  if (STATE.vaIsPlaying || STATE.vaSteps.length === 0) return;
+  STATE.vaIsPlaying = true;
+  document.getElementById('va-play-btn').textContent = '⏸ Пауза';
+
+  const delay = parseFloat(document.getElementById('va-speed').value) * 1000 || 2000;
+
+  function tick() {
+    if (!STATE.vaIsPlaying) return;
+
+    const progress = getVaCurrentStepProgress();
+    renderVaAtProgress(progress, false);
+
+    STATE.vaCurrentStepIndex++;
+
+    if (STATE.vaCurrentStepIndex >= STATE.vaSteps.length) {
+      stopVaAnimation();
+      return;
+    }
+
+    vaIntervalId = setTimeout(tick, delay);
+  }
+
+  tick();
+}
+
+function pauseVaAnimation() {
+  STATE.vaIsPlaying = false;
+  clearTimeout(vaIntervalId);
+  document.getElementById('va-play-btn').textContent = '▶ Продолжить';
+}
+
+function stopVaAnimation() {
+  STATE.vaIsPlaying = false;
+  clearTimeout(vaIntervalId);
+  document.getElementById('va-play-btn').textContent = '▶ Играть';
+}
+
+function toggleVaPlay() {
+  if (STATE.vaIsPlaying) pauseVaAnimation();
+  else startVaAnimation();
+}
+
+function renderVaAtProgress(progress, forceFull) {
+  progress = Math.max(0, Math.min(1, progress));
+  STATE.vaCurrentFrame = progress;
+
+  const visible = getVaVisiblePoints(progress);
+  const fresh = getVaFreshPoints(visible);
+  const hasNewPoints = fresh.length > 0;
+
+  if (forceFull) {
+    resetVaMap();
+    STATE.vaRenderedLineKeys.clear();
+    visible.forEach(p => addVaPoint(p, false, !p.date));
+    addVaLines(visible);
+
+    if (visible.length > 0) {
+      centerVaOnAll(visible);
+    }
+  } else {
+    if (hasNewPoints) {
+      fresh.forEach(p => addVaPoint(p, true, !p.date));
+      addVaLines(visible);
+
+      const prevIndex = visible.length - fresh.length - 1;
+      const prevPoint = prevIndex >= 0 ? visible[prevIndex] : null;
+      const currentPoint = fresh[fresh.length - 1];
+      centerVaOnPoints(prevPoint, currentPoint);
+    }
+  }
+
+  STATE.vaLastRenderedProgress = progress;
+
+  let visualProgress = progress;
+  if (STATE.vaTimelineMode === 'event' && visible.length > 0) {
+    const lastPoint = visible[visible.length - 1];
+    if (lastPoint.date) {
+      visualProgress = getVaProgressFromDate(lastPoint.date);
+    } else {
+      visualProgress = 1;
+    }
+  }
+
+  updateVaTimeline(progress, visualProgress);
+}
+
+function getVaVisiblePoints(progress) {
+  progress = Math.max(0, Math.min(1, progress));
+
+  if (STATE.vaTimelineMode === 'event') {
+    const total = STATE.vaRawData.length;
+    const count = Math.max(1, Math.round(progress * total));
+    const sorted = [...STATE.vaRawData].sort((a, b) => {
+      if (a.date && b.date) {
+        if (a.date.getTime() !== b.date.getTime()) return a.date - b.date;
+        return (a.order || 0) - (b.order || 0);
+      }
+      if (a.date && !b.date) return -1;
+      if (!a.date && b.date) return 1;
+      return (a.order || 0) - (b.order || 0);
+    });
+    return sorted.slice(0, count);
+  }
+
+  const currentDate = getVaDateFromProgress(progress);
+  return STATE.vaRawData.filter(p => {
+    if (!p.date) return progress >= 0.999;
+    return p.date <= currentDate;
+  });
+}
+
+function getVaFreshPoints(visible) {
+  if (STATE.vaTimelineMode === 'event') {
+    return visible.filter(p => !STATE.vaRenderedPointIds.has(p.id));
+  }
+
+  const prevDate = getVaDateFromProgress(STATE.vaLastRenderedProgress);
+  const currentDate = getVaDateFromProgress(STATE.vaCurrentFrame);
+  return visible.filter(p => p.date && p.date > prevDate && p.date <= currentDate);
+}
+
+function addVaPoint(point, isFresh, isUndated) {
+  const color = getVaGroupColor(point.group);
+  const marker = L.marker([point.lat, point.lon], {
+    draggable: true,
+    icon: L.divIcon({
+      html: '<div class="va-marker-icon" style="background:' + color + ';color:white;width:26px;height:26px;border:' + (isFresh ? '3px solid #fff' : '2px solid #555') + ';">' + (point.order || '') + '</div>',
+      iconSize: [26, 26],
+      iconAnchor: [13, 13],
+      popupAnchor: [0, -15],
+      className: 'custom-marker'
+    })
+  }).addTo(vaMap)
+  .bindPopup('<b>' + (point.order || '') + '. ' + point.name + '</b>' +
+    (point.date ? '<br>📅 ' + formatVaDate(point.date, STATE.vaDatePrecision) : '') +
+    (point.description ? '<br>' + point.description : ''), {
+    className: 'va-popup',
+    closeButton: false
+  });
+
+  if (isFresh) marker.openPopup();
+  STATE.vaMarkers.push(marker);
+  STATE.vaRenderedPointIds.add(point.id);
+
+  // Пауза при попытке перетащить во время воспроизведения
+  marker.on('dragstart', function(e) {
+    if (STATE.vaIsPlaying) {
+      pauseVaAnimation();
+      setTimeout(() => {
+        e.target.setLatLng([point.lat, point.lon]);
+      }, 0);
+    }
+  });
+
+  // Обновление координат после перетаскивания
+  marker.on('dragend', function(e) {
+    const newPos = e.target.getLatLng();
+    const newLat = parseFloat(newPos.lat.toFixed(4));
+    const newLon = parseFloat(newPos.lng.toFixed(4));
+  
+    updateToponymCoords(
+      point.originalId || point.id, 
+      newLat, 
+      newLon, 
+      point.name || point.text
+    );
+    redrawVaLines();
+  });
+}
+
+function addVaLines(points) {
+  const dated = sortVaPointsChrono(points);
+  if (dated.length < 2) return;
+
+  for (let i = 1; i < dated.length; i++) {
+    const lineKey = dated[i-1].id + '-' + dated[i].id;
+    if (STATE.vaRenderedLineKeys.has(lineKey)) continue;
+
+    const line = L.polyline(
+      [[dated[i-1].lat, dated[i-1].lon], [dated[i].lat, dated[i].lon]],
+      { color: '#e94560', weight: 2.5, opacity: 0.7, dashArray: '10, 8' }
+    ).addTo(vaMap);
+    STATE.vaLines.push(line);
+    STATE.vaRenderedLineKeys.add(lineKey);
+  }
+}
+
+function centerVaOnPoints(prevPoint, currentPoint) {
+  if (STATE.vaZoomLocked) return;
+  if (!currentPoint || !vaMap) return;
+  var targetLatLng = L.latLng(currentPoint.lat, currentPoint.lon);
+  // Если точка уже видна в текущих границах карты — ничего не делаем
+  if (vaMap.getBounds().contains(targetLatLng)) return;
+  // Определяем целевой зум: базовый + допуск, но не больше текущего
+  var maxZoom = (STATE.vaBaseZoom !== null) ? Math.min(STATE.vaBaseZoom + 3, 18) : 16;
+  var currentZoom = vaMap.getZoom();
+  var targetZoom = Math.min(currentZoom, maxZoom);
+  // Плавное панорамирование без изменения зума
+  vaMap.panTo(targetLatLng, { animate: true, duration: 0.8 });
+  // Корректировка зума только если он слишком сильный
+  if (currentZoom > maxZoom) {
+    vaMap.setZoom(maxZoom, { animate: true });
+  }
+}
+
+function centerVaOnAll(allVisiblePoints) {
+  if (STATE.vaZoomLocked) return;
+  if (!allVisiblePoints || allVisiblePoints.length === 0) return;
+
+  const padding = [
+    Math.round(window.innerHeight * 0.1),
+    Math.round(window.innerWidth * 0.1)
+  ];
+  const bounds = allVisiblePoints.map(p => [p.lat, p.lon]);
+
+  const first = allVisiblePoints[0];
+  const allSame = allVisiblePoints.every(p => areVaPointsSame(first, p));
+
+  if (allSame) {
+    vaMap.flyTo([first.lat, first.lon], 16, { duration: 0.8 });
+    return;
+  }
+
+  vaMap.fitBounds(bounds, { padding: padding, duration: 0.8 });
+}
+
+function areVaPointsSame(a, b) {
+  if (!a || !b) return false;
+  const latDiff = Math.abs(a.lat - b.lat);
+  const lonDiff = Math.abs(a.lon - b.lon);
+  return latDiff < 0.0001 && lonDiff < 0.0001;
+}
+</script>
+<!-- ============================================ -->
+<!-- БЛОК 14: VA_EXPORT                           -->
+<!-- ============================================ -->
+<script>
+const MAP_TEMPLATE = `
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>СОВА — Экспорт Карты</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --va-bg: #f8f9fa;
+    --va-panel-bg: #ffffff;
+    --va-accent: #e94560;
+    --va-accent-light: #ff6b6b;
+    --va-blue: #5dade2;
+    --va-text: #333;
+    --va-muted: #6c757d;
+    --va-border: #dee2e6;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', Georgia, serif;
+    font-size: 14px;
+    color: var(--va-text);
+    background: var(--va-bg);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+  }
+  /* Sidebar */
+  #sidebar {
+    width: 340px;
+    height: 100vh;
+    background: var(--va-panel-bg);
+    border-right: 1px solid var(--va-border);
+    padding: 20px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    flex-shrink: 0;
+  }
+
+  /* Фиксируем элементы, чтобы они не сжимались */
+  #sidebar > div:not(#table-wrap) {
+    flex-shrink: 0;
+  }
+  #sidebar h2 {
+    font-size: 18px;
+    color: var(--va-accent);
+    margin-bottom: 4px;
+  }
+  .section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--va-muted);
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .settings {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .settings label {
+    font-size: 11px;
+    color: var(--va-muted);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .settings input, .settings select {
+    padding: 8px;
+    background: #fff;
+    border: 1px solid var(--va-border);
+    border-radius: 6px;
+    color: var(--va-text);
+    font-size: 12px;
+    width: 80px;
+  }
+  
+  .btn-row {
+    display: flex;
+    gap: 8px;
+  }
+  .btn {
+    flex: 1;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn.primary { background: var(--va-accent); color: white; }
+  .btn.primary:hover { background: var(--va-accent-light); }
+  .btn.secondary { background: var(--va-border); color: var(--va-muted); }
+  .btn.secondary:hover { background: #ced4da; }
+  .controls-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  .control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .control-group:first-child {
+    flex: 1;
+    min-width: 80px;
+  }
+  .control-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--va-muted);
+    font-weight: 600;
+  }
+  .control-group select,
+  .control-group input {
+    padding: 8px 4px;
+    background: #fff;
+    border: 1px solid var(--va-border);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--va-text);
+    width: 100%;
+  }
+  .control-group:nth-child(2) input {
+    width: 50px;
+    text-align: center;
+  }
+  .controls-row .btn {
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+  .controls-row .btn.secondary {
+    flex: none;
+    width: 36px;
+    padding: 8px 0;
+    text-align: center;
+  }
+  /* Table */
+
+
+.table-section {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+
+.table-section .section-label {
+  flex-shrink: 0;
+}
+  #table-wrap {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    border: 1px solid var(--va-border);
+    border-radius: 6px;
+    min-height: 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+  }
+  th {
+    position: sticky;
+    top: 0;
+    background: #e9ecef;
+    padding: 6px 8px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid #ccc;
+    white-space: nowrap;
+    z-index: 1;
+  }
+  td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #eee;
+    vertical-align: top;
+  }
+  #table-body td:nth-child(4) {
+    overflow-wrap: anywhere;
+  }
+  tr.active { background: #fff3e0; }
+  tr:hover { background: #f8f9fa; }
+  .footer {
+    font-size: 10px;
+    color: #999;
+    text-align: center;
+    padding-top: 12px;
+    border-top: 1px solid var(--va-border);
+    line-height: 1.5;
+  }
+  .footer a { color: var(--va-accent); text-decoration: none; }
+  /* Main area */
+  #main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  #map-wrap {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+  }
+  #map { width: 100%; height: 100%; }
+  .map-control-panel {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(255,255,255,0.95);
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--va-border);
+    font-size: 12px;
+    z-index: 500;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .map-control-panel label {
+    font-weight: 600;
+    color: var(--va-text);
+    white-space: nowrap;
+  }
+  .map-control-panel select {
+    padding: 6px 8px;
+    background: #fff;
+    border: 1px solid var(--va-border);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--va-text);
+    cursor: pointer;
+  }
+
+  .map-attribution {
+    position: absolute;
+    bottom: 4px;
+    right: 8px;
+    font-size: 11px;
+    color: #999;
+    z-index: 500;
+    pointer-events: auto;
+    line-height: 1.4;
+    text-align: right;
+  }
+  .map-attribution a {
+    color: #999;
+    text-decoration: none;
+    border-bottom: 1px dotted #bbb;
+  }
+  .map-attribution a:hover {
+    color: var(--va-accent);
+    border-bottom-color: var(--va-accent);
+  }
+
+  /* Legend */
+  .legend {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(255,255,255,0.95);
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid var(--va-border);
+    font-size: 12px;
+    z-index: 500;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    display: none;
+  }
+  .legend-item { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid white; box-shadow: 0 0 0 1px #ccc;
+  }
+  /* Popup */
+  .leaflet-popup-content-wrapper {
+    border-radius: 8px !important;
+    border: 1px solid var(--va-accent) !important;
+    font-size: 13px !important;
+  }
+  /* Marker icon */
+  .marker-icon {
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: bold;
+    color: white;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    border: 2px solid #fff;
+  }
+  @keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.25); }
+    100% { transform: scale(1); }
+  }
+  .marker-fresh {
+    animation: pulse 0.6s ease;
+    box-shadow: 0 0 0 3px white, 0 0 0 5px var(--va-accent), 0 2px 8px rgba(0,0,0,0.4) !important;
+  }
+  /* Timeline */
+  #timeline {
+    height: 120px;
+    background: var(--va-panel-bg);
+    border-top: 1px solid var(--va-border);
+    padding: 12px 24px;
+    flex-shrink: 0;
+    user-select: none;
+  }
+  #tl-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  #tl-date {
+    font-size: 14px;
+    font-weight: bold;
+    color: var(--va-accent);
+    font-family: 'Consolas', monospace;
+  }
+  #tl-range { font-size: 11px; color: var(--va-muted); }
+  #tl-track-wrap { position: relative; padding: 8px 0; }
+  #tl-track {
+    position: relative;
+    width: 100%;
+    height: 6px;
+    background: #e9ecef;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  #tl-fill {
+    position: absolute; left: 0; top: 0; height: 100%;
+    background: linear-gradient(90deg, var(--va-accent), var(--va-accent-light));
+    border-radius: 3px; width: 0%; pointer-events: none;
+  }
+  #tl-thumb {
+    position: absolute; top: 50%; transform: translate(-50%, -50%);
+    width: 16px; height: 16px; background: var(--va-accent);
+    border: 3px solid white; border-radius: 50%;
+    cursor: grab; z-index: 10; left: 0%;
+    box-shadow: 0 2px 8px rgba(233,69,96,0.4);
+  }
+  #tl-thumb:active { cursor: grabbing; }
+  #tl-ticks, #tl-events { position: relative; width: 100%; }
+  #tl-ticks { height: 20px; margin-top: 2px; }
+  #tl-events { height: 14px; margin-top: 2px; }
+  .tick { position: absolute; top: 0; transform: translateX(-50%); text-align: center; }
+  .tick-line { width: 1px; height: 6px; background: var(--va-muted); margin: 0 auto 2px; }
+  .tick-label { font-size: 9px; color: var(--va-muted); white-space: nowrap; }
+  .event-dot {
+    position: absolute; bottom: -2px; transform: translateX(-50%);
+    width: 8px; height: 8px; background: var(--va-blue);
+    border-radius: 50%; cursor: pointer;
+    border: 2px solid var(--va-panel-bg); z-index: 5;
+  }
+  .event-dot:hover, .event-dot.active {
+    width: 12px; height: 12px;
+    background: var(--va-accent); border-color: white;
+  }
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div id="sidebar">
+  <div>
+    <div id="project-title" style="font-size:18px; font-weight:bold; color:var(--va-text); line-height:1.3; margin-bottom:4px;">{{TITLE_PLACEHOLDER}}</div>
+    <div style="font-size:11px; color:var(--va-muted); letter-spacing:0.5px;">Геовизуализация выполнена в программе <b style="color:var(--va-accent);">СОВА</b></div>
+  </div>
+
+  <div class="controls-row">
+    <div class="control-group">
+      <label class="control-label" for="mode-select">Режим</label>
+      <select id="mode-select">
+        <option value="event">События</option>
+        <option value="time">Время</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label class="control-label" for="speed-input">Скорость</label>
+      <input type="number" id="speed-input" value="2" min="0.5" max="10" step="0.5">
+    </div>
+    <button class="btn primary" id="play-btn">▶ Играть</button>
+    <button class="btn secondary" id="reset-btn">↺</button>
+  </div>
+
+  <div class="table-section">
+    <div class="section-label">Точки маршрута</div>
+    <div id="table-wrap">
+      <table>
+        <thead><tr><th>№</th><th>Название</th><th>Дата</th><th>Прим.</th></tr></thead>
+        <tbody id="table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">
+    Создано в <b>СОВА</b> © Марина Шилова | <a href="mailto:marvsh@yandex.ru">marvsh@yandex.ru</a>
+    <a href="https://doi.org/10.5281/zenodo.22042044"><img src="https://zenodo.org/badge/1339910338.svg" alt="DOI"></a>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <div id="map-wrap">
+    <div id="map"></div>
+    <div id="map"></div>
+    <div class="map-attribution">
+      <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a> |
+      © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a> |
+      © <a href="https://wikimediafoundation.org/" target="_blank" rel="noopener">Wikimedia</a>
+    </div>
+    <div class="map-control-panel" id="zoom-panel">
+      <label for="max-zoom-select">Макс. зум</label>
+      <select id="max-zoom-select">
+        <option value="18">Дом</option>
+        <option value="14" selected>Улица</option>
+        <option value="11">Город</option>
+        <option value="8">Область</option>
+        <option value="5">Регион</option>
+      </select>
+    </div>
+    <div class="legend" id="legend"></div>
+  </div>
+  <div id="timeline">
+    <div id="tl-header">
+      <div id="tl-date">—</div>
+      <div id="tl-range">—</div>
+    </div>
+    <div id="tl-track-wrap">
+      <div id="tl-track"><div id="tl-fill"></div><div id="tl-thumb"></div></div>
+    </div>
+    <div id="tl-events"></div>
+    <div id="tl-ticks"></div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"><\/script>
+<script>
+
+// === ДАННЫЕ ПРОЕКТА (автоматически подставляются при экспорте) ===
+const DATA = {{DATA_PLACEHOLDER}};
+
+
+// === STATE ===
+var map = null;
+var markers = [];
+var lines = [];
+var renderedIds = new Set();
+var steps = [];
+var currentStep = 0;
+var isPlaying = false;
+var playTimer = null;
+var isDragging = false;
+var baseZoom = null,
+currentMode = 'event';
+
+// === COLORS ===
+var groupColors = {
+  'города': '#e94560', 'реки': '#5dade2', 'горы': '#27ae60',
+  'гостиницы': '#f39c12', 'станции': '#9b59b6', 'default': '#5dade2'
+};
+function getColor(group) {
+  if (groupColors[group]) return groupColors[group];
+  var hue = (group.split('').reduce(function(a,b){return a+b.charCodeAt(0)},0) * 137) % 360;
+  groupColors[group] = 'hsl('+hue+',70%,60%)';
+  return groupColors[group];
+}
+
+// === DATE UTILS ===
+function parseDate(s) {
+  if (!s) return null;
+  if (/^\\d{4}$/.test(s)) return new Date(parseInt(s),0,1);
+  if (/^\\d{4}-\\d{2}$/.test(s)) return new Date(s+'-01');
+  if (/^\\d{4}-\\d{2}-\\d{2}$/.test(s)) return new Date(s+'T00:00:00');
+  var d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+function formatDate(d) {
+  if (!d) return '—';
+  var dd = String(d.getDate()).padStart(2,'0');
+  var mm = String(d.getMonth()+1).padStart(2,'0');
+  var yyyy = d.getFullYear();
+  var hh = String(d.getHours()).padStart(2,'0');
+  var mi = String(d.getMinutes()).padStart(2,'0');
+  if (hh==='00' && mi==='00') return dd+'.'+mm+'.'+yyyy;
+  return dd+'.'+mm+'.'+yyyy+' '+hh+':'+mi;
+}
+function formatTickLabel(d, rangeYears) {
+  if (rangeYears < 1) return d.toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
+  if (rangeYears < 10) return d.toLocaleDateString('ru-RU',{year:'numeric',month:'short'});
+  return String(d.getFullYear());
+}
+
+// === INIT MAP ===
+function initMap() {
+  if (map) return;
+  map = L.map('map', {
+    minZoom: 1,
+    maxZoom: 14,
+    attributionControl: false
+  }).setView([55,80], 4);
+  L.tileLayer('https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a> | &copy; <a href="https://wikimediafoundation.org/" target="_blank" rel="noopener">Wikimedia</a>', maxZoom: 14
+  }).addTo(map);
+  map.on('moveend', function(){
+    // можно обновлять координаты центра, если нужно
+  });
+}
+
+// === BUILD ===
+function build() {
+  initMap();
+  resetMap();
+  renderedIds.clear();
+  steps = [];
+  currentStep = 0;
+
+  var mode = document.getElementById('mode-select').value;
+  var dated = DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  var undated = DATA.filter(function(p){return !p.date});
+
+  if (mode === 'event') {
+    var sorted = dated.sort(function(a,b){return a.parsedDate-b.parsedDate})
+      .concat(undated.sort(function(a,b){return (a.order||0)-(b.order||0)}));
+    for (var i=1;i<=sorted.length;i++) steps.push(i/sorted.length);
+  } else {
+    for (var i=0;i<=40;i++) steps.push(i/40);
+  }
+
+  // Fit bounds
+  var pts = DATA.filter(function(p){return p.lat&&p.lon});
+  if (pts.length > 0) {
+    var bounds = pts.map(function(p){return [p.lat,p.lon]});
+    map.fitBounds(bounds,{padding:[50,50]});
+    baseZoom = map.getZoom();
+  }
+
+  // Timeline
+  buildTimeline(dated);
+  // Table
+  renderTable();
+  // Legend
+  buildLegend();
+  // Initial render
+  renderAtProgress(0, true);
+
+  document.getElementById('play-btn').disabled = false;
+}
+
+// === RENDER AT PROGRESS ===
+function renderAtProgress(progress, forceFull, centerMode) {
+  progress = Math.max(0,Math.min(1,progress));
+  var mode = document.getElementById('mode-select').value;
+  var visible = getVisible(progress, mode);
+  var fresh = visible.filter(function(p){return !renderedIds.has(p.id)});
+
+  if (forceFull) {
+    resetMap();
+    renderedIds.clear();
+    visible.forEach(function(p){addPoint(p,false)});
+    addLines(visible);
+    if (visible.length>0) {
+      if (centerMode === 'keep') {
+        // Вид камеры не трогаем — только перерисовываем точки
+      } else if (centerMode === 'pan') {
+        panToCurrentPoint(visible, mode);
+      } else {
+        centerOnAll(visible);
+      }
+    }
+  } else if (fresh.length > 0) {
+    fresh.forEach(function(p){addPoint(p,true)});
+    addLines(visible);
+    var prev = visible.length-fresh.length-1 >= 0 ? visible[visible.length-fresh.length-1] : null;
+    var curr = fresh[fresh.length-1];
+    centerOnPoints(prev, curr);
+  }
+
+  visible.forEach(function(p){renderedIds.add(p.id)});
+  updateTimelineUI(progress, visible, mode);
+}
+
+function getVisible(progress, mode) {
+  var dated = DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  var undated = DATA.filter(function(p){return !p.date});
+
+  if (mode === 'event') {
+    var sorted = dated.sort(function(a,b){return a.parsedDate-b.parsedDate})
+      .concat(undated.sort(function(a,b){return (a.order||0)-(b.order||0)}));
+    var count = Math.max(1,Math.round(progress*sorted.length));
+    return sorted.slice(0,count);
+  }
+  // time mode
+  if (dated.length===0) return [];
+  var minD = new Date(Math.min.apply(null,dated.map(function(p){return p.parsedDate})));
+  var maxD = new Date(Math.max.apply(null,dated.map(function(p){return p.parsedDate})));
+  var range = maxD-minD;
+  var curDate = new Date(minD.getTime()+range*progress);
+  var vis = dated.filter(function(p){return p.parsedDate<=curDate});
+  if (progress>=0.999) vis = vis.concat(undated);
+  return vis;
+}
+
+// === POINTS & LINES ===
+function addPoint(point, isFresh) {
+  var color = getColor(point.group||'default');
+  var cls = 'marker-icon'+(isFresh?' marker-fresh':'');
+  var m = L.marker([point.lat,point.lon],{
+    icon: L.divIcon({
+      html:'<div class="'+cls+'" style="background:'+color+';width:24px;height:24px;">'+(point.order||'')+'</div>',
+      iconSize:[24,24], iconAnchor:[12,12], popupAnchor:[0,-14], className:''
+    })
+  }).addTo(map);
+  var popup = '<b>'+(point.order||'')+'. '+point.name+'</b>';
+  if (point.date) popup += '<br>📅 '+formatDate(parseDate(point.date));
+  if (point.description) popup += '<br>'+point.description;
+  m.bindPopup(popup,{closeButton:false});
+  if (isFresh) m.openPopup();
+  m._pid = point.id;
+  markers.push(m);
+}
+
+function addLines(points) {
+  var dated = points.filter(function(p){return p.date}).sort(function(a,b){
+    if (a.parsedDate && b.parsedDate && a.parsedDate.getTime() !== b.parsedDate.getTime()) return a.parsedDate - b.parsedDate;
+    return (a.order||0)-(b.order||0);
+  });
+  if (dated.length<2) return;
+  for (var i=1;i<dated.length;i++) {
+    var key = dated[i-1].id+'-'+dated[i].id;
+    if (renderedIds.has('line-'+key)) continue;
+    var line = L.polyline(
+      [[dated[i-1].lat,dated[i-1].lon],[dated[i].lat,dated[i].lon]],
+      {color:'#e94560',weight:2.5,opacity:0.7,dashArray:'10,8'}
+    ).addTo(map);
+    lines.push(line);
+    renderedIds.add('line-'+key);
+  }
+}
+
+function resetMap() {
+  markers.forEach(function(m){map.removeLayer(m)});
+  lines.forEach(function(l){map.removeLayer(l)});
+  markers=[]; lines=[];
+}
+
+// === CENTERING (SMART ZOOM) ===
+function centerOnPoints(prev, curr) {
+  if (!curr||!map) return;
+  var target = L.latLng(curr.lat,curr.lon);
+  if (map.getBounds().contains(target)) return;
+  var maxZ = baseZoom!==null ? Math.min(baseZoom+3,18) : 16;
+  if (map.getZoom()>maxZ) map.setZoom(maxZ,{animate:true});
+  map.panTo(target,{animate:true,duration:0.8});
+}
+function centerOnAll(pts) {
+  if (!pts||pts.length===0) return;
+  var bounds = pts.map(function(p){return [p.lat,p.lon]});
+  map.fitBounds(bounds,{padding:[50,50],duration:0.8});
+  baseZoom = map.getZoom();
+}
+
+function panToCurrentPoint(visible, mode) {
+  if (!visible || visible.length === 0 || !map) return;
+  // Цель: События — последняя видимая точка, Время — самая свежая по дате
+  var target;
+  if (mode === 'event') {
+    target = visible[visible.length - 1];
+  } else {
+    target = null;
+    for (var i = 0; i < visible.length; i++) {
+      var p = visible[i];
+      if (p.parsedDate && (!target || p.parsedDate > target.parsedDate)) {
+        target = p;
+      }
+    }
+    if (!target) target = visible[visible.length - 1];
+  }
+  if (!target || !target.lat || !target.lon) return;
+  var m = markers.find(function(mk) { return mk._pid === target.id; });
+  var targetLL = L.latLng(target.lat, target.lon);
+  // Уже на месте — просто открываем попап
+  if (map.getCenter().distanceTo(targetLL) < 1) {
+    if (m) m.openPopup();
+    return;
+  }
+  // Пан без смены зума, попап — по прибытии
+  map.once('moveend', function() {
+    if (m && m._map) m.openPopup();
+  });
+  map.panTo(targetLL, {animate: true, duration: 0.5});
+}
+
+function getCurrentAnchorPoint(visible, mode) {
+  if (!visible || visible.length === 0) return null;
+  if (mode === 'event') {
+    return visible[visible.length - 1];
+  }
+  // Время: самая свежая по дате
+  var best = null;
+  for (var i = 0; i < visible.length; i++) {
+    var p = visible[i];
+    if (p.parsedDate && (!best || p.parsedDate > best.parsedDate)) {
+      best = p;
+    }
+  }
+  return best || visible[visible.length - 1];
+}
+function findProgressByPointId(pointId, mode) {
+  var dated = DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  var undated = DATA.filter(function(p){return !p.date});
+  var all = dated.sort(function(a,b){return a.parsedDate-b.parsedDate})
+    .concat(undated.sort(function(a,b){return (a.order||0)-(b.order||0)}));
+  if (all.length === 0) return { progress: 0, stepIndex: 0 };
+  var idx = -1;
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].id === pointId) { idx = i; break; }
+  }
+  if (idx === -1) idx = all.length - 1;
+  if (mode === 'event') {
+    return { progress: (idx + 1) / all.length, stepIndex: idx };
+  } else {
+    var point = all[idx];
+    var pos;
+    if (point.parsedDate && dated.length > 0) {
+      var dates = dated.map(function(p){return p.parsedDate});
+      var minD = new Date(Math.min.apply(null,dates));
+      var maxD = new Date(Math.max.apply(null,dates));
+      var range = maxD - minD;
+      pos = range === 0 ? 0 : (point.parsedDate - minD) / range;
+    } else {
+      pos = 1;
+    }
+    return { progress: pos, stepIndex: Math.max(0, Math.min(40, Math.round(pos * 40))) };
+  }
+}
+
+// === TIMELINE ===
+function buildTimeline(dated) {
+  var ticksEl = document.getElementById('tl-ticks');
+  var eventsEl = document.getElementById('tl-events');
+  ticksEl.innerHTML=''; eventsEl.innerHTML='';
+  if (dated.length===0) return;
+
+  var dates = dated.map(function(p){return p.parsedDate});
+  var minD = new Date(Math.min.apply(null,dates));
+  var maxD = new Date(Math.max.apply(null,dates));
+  var rangeYears = (maxD-minD)/(1000*60*60*24*365);
+
+  // Ticks
+  for (var i=0;i<=10;i++) {
+    var prog = i/10;
+    var d = new Date(minD.getTime()+(maxD-minD)*prog);
+    var el = document.createElement('div');
+    el.className='tick'; el.style.left=(prog*100)+'%';
+    el.innerHTML='<div class="tick-line"></div><div class="tick-label">'+formatTickLabel(d,rangeYears)+'</div>';
+    ticksEl.appendChild(el);
+  }
+
+  // Events
+  dated.forEach(function(p){
+    var prog = (p.parsedDate-minD)/(maxD-minD||1);
+    var dot = document.createElement('div');
+    dot.className='event-dot'; dot.style.left=(prog*100)+'%';
+    dot.title=(p.order||'')+'. '+p.name+' — '+formatDate(p.parsedDate);
+    dot.onclick=function(e){
+      e.stopPropagation();
+      if (isPlaying) pause();
+      goToProgress(prog);
+    };
+    eventsEl.appendChild(dot);
+  });
+
+  document.getElementById('tl-range').textContent=formatDate(minD)+' — '+formatDate(maxD);
+}
+
+function updateTimelineUI(progress, visible, mode) {
+  var vp = progress;
+  if (mode==='event' && visible.length>0) {
+    var last = visible[visible.length-1];
+    if (last.date) {
+      var dated = DATA.filter(function(p){return p.date}).map(function(p){
+        return Object.assign({},p,{parsedDate:parseDate(p.date)});
+      }).filter(function(p){return p.parsedDate});
+      if (dated.length>0) {
+        var minD=new Date(Math.min.apply(null,dated.map(function(p){return p.parsedDate})));
+        var maxD=new Date(Math.max.apply(null,dated.map(function(p){return p.parsedDate})));
+        vp = (last.parsedDate-minD)/(maxD-minD||1);
+      }
+    }
+  }
+  document.getElementById('tl-fill').style.width=(vp*100)+'%';
+  document.getElementById('tl-thumb').style.left=(vp*100)+'%';
+
+  // Date display
+  var dated = DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  if (dated.length>0) {
+    var minD=new Date(Math.min.apply(null,dated.map(function(p){return p.parsedDate})));
+    var maxD=new Date(Math.max.apply(null,dated.map(function(p){return p.parsedDate})));
+    var curDate=new Date(minD.getTime()+(maxD-minD)*progress);
+    document.getElementById('tl-date').textContent=formatDate(curDate);
+  }
+
+  // Highlight event dots
+  document.querySelectorAll('.event-dot').forEach(function(el){
+    var ep=parseFloat(el.style.left)/100;
+    el.classList.toggle('active',ep<=vp);
+  });
+}
+
+// === TABLE ===
+function renderTable() {
+  var tbody = document.getElementById('table-body');
+  tbody.innerHTML = DATA.map(function(p,i){
+    var dateStr = p.date ? formatDate(parseDate(p.date)) : '';
+    return '<tr data-id="'+p.id+'" onclick="onRowClick(\\''+p.id+'\\')">' +
+      '<td>'+(p.order||i+1)+'</td>' +
+      '<td>'+p.name+'</td>' +
+      '<td>'+dateStr+'</td>' +
+      '<td>'+(p.description||'')+'</td></tr>';
+  }).join('');
+}
+function highlightRow(id) {
+  document.querySelectorAll('#table-body tr').forEach(function(tr){
+    tr.classList.toggle('active',tr.dataset.id===id);
+  });
+}
+function onRowClick(id) {
+  var p = DATA.find(function(x){return x.id===id});
+  if (p && p.lat && p.lon) {
+    map.panTo([p.lat,p.lon]);
+    var m = markers.find(function(mk){
+      var ll=mk.getLatLng();
+      return Math.abs(ll.lat-p.lat)<0.001 && Math.abs(ll.lng-p.lon)<0.001;
+    });
+    if (m) m.openPopup();
+  }
+  highlightRow(id);
+}
+
+// === LEGEND ===
+function buildLegend() {
+  var groups = {};
+  DATA.forEach(function(p){if(p.group)groups[p.group]=true});
+  var keys = Object.keys(groups);
+  var el = document.getElementById('legend');
+  if (keys.length<=1){el.style.display='none';return;}
+  el.innerHTML='<div style="font-weight:bold;margin-bottom:6px;color:var(--va-accent)">Группы</div>';
+  keys.forEach(function(g){
+    el.innerHTML+='<div class="legend-item"><div class="legend-dot" style="background:'+getColor(g)+'"></div><span>'+g+'</span></div>';
+  });
+  el.style.display='block';
+}
+
+// === PLAYBACK ===
+function startPlay() {
+  if (isPlaying||steps.length===0) return;
+  isPlaying=true;
+  document.getElementById('play-btn').textContent='⏸ Пауза';
+  tick();
+}
+function pause() {
+  isPlaying=false;
+  clearTimeout(playTimer);
+  document.getElementById('play-btn').textContent='▶ Дальше';
+}
+function stop() {
+  isPlaying=false;
+  clearTimeout(playTimer);
+  document.getElementById('play-btn').textContent='▶ Играть';
+}
+function togglePlay() {
+  if (isPlaying) pause(); else startPlay();
+}
+function tick() {
+  if (!isPlaying) return;
+  var progress = steps[Math.min(currentStep,steps.length-1)];
+  renderAtProgress(progress,false);
+  highlightActiveRow(progress);
+  currentStep++;
+  if (currentStep>=steps.length){stop();return;}
+  var delay = parseFloat(document.getElementById('speed-input').value)*1000||2000;
+  var mode = document.getElementById('mode-select').value;
+  if (mode === 'time') delay = delay;
+  playTimer = setTimeout(tick,delay);
+}
+function highlightActiveRow(progress) {
+  var mode = document.getElementById('mode-select').value;
+  var visible = getVisible(progress,mode);
+  if (visible.length>0) highlightRow(visible[visible.length-1].id);
+}
+function resetAll() {
+  stop();
+  resetMap();
+  renderedIds.clear();
+  currentStep=0;
+  document.getElementById('tl-fill').style.width='0%';
+  document.getElementById('tl-thumb').style.left='0%';
+  document.getElementById('tl-date').textContent='—';
+  renderAtProgress(0,true);
+}
+
+function goToProgress(progress) {
+  var mode = document.getElementById('mode-select').value;
+  // Датированные точки с распарсенными датами
+  var dated = DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  var undated = DATA.filter(function(p){return !p.date});
+  // Порядок как в режиме События: датированные по хронологии, затем бездатные по order
+  var all = dated.sort(function(a,b){return a.parsedDate-b.parsedDate})
+    .concat(undated.sort(function(a,b){return (a.order||0)-(b.order||0)}));
+  if (all.length === 0) {
+    renderAtProgress(0, true);
+    return;
+  }
+  // Диапазон дат: перевод даты в позицию на шкале
+  var dates = dated.map(function(p){return p.parsedDate});
+  var minD = dates.length ? new Date(Math.min.apply(null,dates)) : null;
+  var maxD = dates.length ? new Date(Math.max.apply(null,dates)) : null;
+  function datePos(p) {
+    if (!p.parsedDate || !minD || !maxD) return 1;
+    var range = maxD - minD;
+    return range === 0 ? 0 : (p.parsedDate - minD) / range;
+  }
+  // Ближайший кандидат: точки (по дате), во Времени добавляются четверть-шаги i/40
+  var best = null, minDiff = Infinity;
+  all.forEach(function(p, idx){
+    var d = Math.abs(datePos(p) - progress);
+    if (d < minDiff) { minDiff = d; best = { pos: datePos(p), index: idx }; }
+  });
+  if (mode === 'time') {
+    for (var i = 0; i <= 40; i++) {
+      var d2 = Math.abs(i/40 - progress);
+      if (d2 < minDiff) { minDiff = d2; best = { pos: i/40, index: -1 }; }
+    }
+  }
+  if (mode === 'event') {
+    // События: сажаем на точку, шаг = индекс этой точки
+    currentStep = best.index;
+    var stepProgress = (best.index + 1) / all.length;
+    renderAtProgress(stepProgress, true, 'pan');
+    highlightActiveRow(stepProgress);
+  } else {
+    // Время: сажаем на ближайшую позицию (точка или четверть-тик)
+    renderAtProgress(best.pos, true, 'pan');
+    currentStep = Math.max(0, Math.min(40, Math.round(best.pos * 40)));
+    highlightActiveRow(best.pos);
+  }
+}
+
+// === TIMELINE DRAG ===
+document.getElementById('tl-thumb').addEventListener('mousedown',function(e){
+  isDragging=true;
+  if(isPlaying)pause();
+  e.preventDefault();
+});
+document.addEventListener('mousemove',function(e){
+  if(!isDragging)return;
+  var track=document.getElementById('tl-track');
+  var rect=track.getBoundingClientRect();
+  var x=Math.max(0,Math.min(rect.width,e.clientX-rect.left));
+  var prog=x/rect.width;
+  document.getElementById('tl-fill').style.width=(prog*100)+'%';
+  document.getElementById('tl-thumb').style.left=(prog*100)+'%';
+});
+document.addEventListener('mouseup',function(){
+  if(isDragging){
+    isDragging=false;
+    var thumb=document.getElementById('tl-thumb');
+    var prog=parseFloat(thumb.style.left)/100;
+    goToProgress(prog);
+  }
+});
+document.getElementById('tl-track').addEventListener('click',function(e){
+  if(isDragging)return;
+  if(isPlaying)pause();
+  var rect=this.getBoundingClientRect();
+  var prog=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+  goToProgress(prog);
+});
+
+// === MODE/SPEED CHANGE ===
+document.getElementById('mode-select').addEventListener('change',function(){
+  var oldMode = currentMode;
+  var newMode = this.value;
+  if (oldMode === newMode) return;
+  stop();
+  // Запоминаем точку-якорь в старом режиме
+  var oldProgress = steps[currentStep] || 0;
+  var visible = getVisible(oldProgress, oldMode);
+  var anchor = getCurrentAnchorPoint(visible, oldMode);
+  var anchorId = anchor ? anchor.id : null;
+  // Переключаем режим и пересобираем шаги
+  currentMode = newMode;
+  var mode = newMode;
+  var dated=DATA.filter(function(p){return p.date}).map(function(p){
+    return Object.assign({},p,{parsedDate:parseDate(p.date)});
+  }).filter(function(p){return p.parsedDate});
+  var undated=DATA.filter(function(p){return !p.date});
+  steps=[];
+  if(mode==='event'){
+    var sorted=dated.sort(function(a,b){return a.parsedDate-b.parsedDate})
+      .concat(undated.sort(function(a,b){return (a.order||0)-(b.order||0)}));
+    for(var i=1;i<=sorted.length;i++)steps.push(i/sorted.length);
+  }else{
+    for(var i=0;i<=40;i++)steps.push(i/40);
+  }
+  // Находим новую позицию для якоря в новом режиме
+  var newPos;
+  if (anchorId) {
+    newPos = findProgressByPointId(anchorId, newMode);
+  } else {
+    newPos = { progress: 0, stepIndex: 0 };
+  }
+  currentStep = newPos.stepIndex;
+  renderAtProgress(newPos.progress, true, 'keep');
+  highlightActiveRow(newPos.progress);
+});
+
+// === ZOOM PANEL ===
+document.getElementById('max-zoom-select').addEventListener('change', function() {
+  var z = parseInt(this.value, 10);
+  if (!map) return;
+  map.setMaxZoom(z);
+  map.eachLayer(function(layer) {
+    if (layer.options && layer.options.maxZoom !== undefined) {
+      layer.options.maxZoom = z;
+    }
+  });
+  if (map.getZoom() > z) {
+    map.setZoom(z);
+  }
+});
+
+// === BINDINGS ===
+document.getElementById('play-btn').addEventListener('click',togglePlay);
+document.getElementById('reset-btn').addEventListener('click',resetAll);
+
+// === START ===
+build();
+<\/script>
+</body>
+</html>
+`;
+
+// === ИНСТРУМЕНТЫ ДЛЯ ЭКСПОРТА КАРТЫ ===
+
+/**
+ * Заменяет плейсхолдеры в шаблоне на реальные данные
+ */
+function injectDataIntoTemplate(template, title, data) {
+  let html = template;
+  
+  // 1. Замена заголовка
+  html = html.replace('{{TITLE_PLACEHOLDER}}', title || 'Экспорт проекта СОВА');
+  
+  // 2. Подготовка JSON-данных
+  const jsonData = JSON.stringify(data, null, 2);
+  
+  // 3. Замена массива данных
+  html = html.replace('{{DATA_PLACEHOLDER}}', jsonData);
+  
+  return html;
+}
+
+/**
+ * Создаёт и скачивает HTML-файл из строки
+ */
+function downloadHTMLFile(content, filename) {
+  const blob = new Blob([content], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  
+  // Очистка
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
+}
+
+
+function downloadVaMapHTML() {
+
+  console.log("--- НАЧАЛО ЭКСПОРТА ---");
+  console.log("Объект STATE:", STATE);
+  console.log("Массив data:", STATE.data);
+  // 1. Получаем заголовок из модалки
+  const titleInput = document.getElementById('mapTitleInput');
+  const title = titleInput ? titleInput.value.trim() : '';
+  
+  // 2. Берём текущие данные из State
+  const rawData = STATE.data || [];
+  console.log("Raw Data Length:", rawData.length); 
+  if (rawData.length === 0) {
+    alert('⚠️ В таблице нет данных для экспорта. Добавьте точки на карту и попробуйте снова.');
+    return;
+  }
+
+  // Фильтруем и чистим данные
+  const cleanData = rawData
+    .filter(item => {
+      // Пропускаем отклоненные точки
+      if (item.status === 'rejected') return false;
+      
+      // Проверяем наличие координат (lat и lon должны быть числами и не равны 0/NaN)
+      const lat = parseFloat(item.lat);
+      const lon = parseFloat(item.lon);
+      if (!lat || !lon || isNaN(lat) || isNaN(lon)) return false;
+      
+      return true;
+    })
+    .map(item => ({
+      id: item.id,
+      name: item.name,
+      lat: parseFloat(item.lat),
+      lon: parseFloat(item.lon),
+      date: item.date || '',
+      group: item.group || 'default',
+      order: parseInt(item.order) || 0,
+      description: item.description || ''
+    }));
+
+  if (cleanData.length === 0) {
+    alert('⚠️ Нет точек с координатами для экспорта. Проверьте таблицу.');
+    return;
+  }
+
+
+  // 3. Генерируем итоговый HTML
+  const finalHTML = injectDataIntoTemplate(MAP_TEMPLATE, title, cleanData);
+  
+  // 4. Скачиваем файл
+  downloadHTMLFile(finalHTML, 'map_export.sova.html');
+  
+  // 5. Закрываем модалку
+  closeVaModal();
+}
+
+function exportVaEmbed() {
+  const modal = document.createElement('div');
+  modal.className = 'modal-overlay';
+  modal.style.cssText = `
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+  `;
+  
+  modal.innerHTML = `
+    <div class="modal-content" style="
+      background: white;
+      padding: 24px;
+      border-radius: 8px;
+      max-width: 500px;
+      width: 90%;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    ">
+      <h3 style="margin-top: 0; color: #e94560;">Экспорт интерактивной карты</h3>
+      
+      <div style="margin: 15px 0; padding: 12px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">
+        <strong>⚠️ Внимание:</strong><br>
+        Вы собираетесь скачать HTML-файл, который сможете открыть в браузере или вставить на сайт.
+      </div>
+      
+      <div style="margin: 15px 0;">
+        <label for="mapTitleInput" style="display: block; margin-bottom: 5px; font-weight: bold;">
+          Заголовок геовизуализации (макс. 28 символов):
+        </label>
+        <input 
+          type="text" 
+          id="mapTitleInput" 
+          maxlength="28" 
+          placeholder="Экспорт проекта СОВА"
+          style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 14px;"
+        />
+        <small style="color: #666; display: block; margin-top: 4px;">
+          Осталось символов: <span id="charCount">28</span>
+        </small>
+      </div>
+      
+      <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+        <button onclick="closeVaModal()" style="padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+          Отмена
+        </button>
+        <button onclick="downloadVaMapHTML()" style="padding: 8px 16px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+          📥 Скачать HTML
+        </button>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(modal);
+  
+  // Добавляем обработчик для счётчика символов
+  const titleInput = document.getElementById('mapTitleInput');
+  const charCount = document.getElementById('charCount');
+  
+  if (titleInput && charCount) {
+    titleInput.addEventListener('input', function() {
+      const remaining = 28 - this.value.length;
+      charCount.textContent = remaining;
+      if (remaining <= 5) {
+        charCount.style.color = '#dc3545';
+      } else {
+        charCount.style.color = '#666';
+      }
+    });
+    
+    // Фокус на поле ввода
+    titleInput.focus();
+  }
+}
+
+function closeVaModal() {
+  const modal = document.querySelector('.modal-overlay');
+  if (modal) {
+    modal.remove();
+  }
+}
+</script>
+
+<!-- ============================================ -->
+<!-- БЛОК 15: AI_PROMPTS                          -->
+<!-- ============================================ -->
+<script>
+// AI Prompts modal is already set up as a stub in HTML layout
+// Content:
+
+const SOVA_GUIDE_PROMPT = `СКОПИРУЙТЕ И ВСТАВЬТЕ ПРОМПТ В ИИ-ЧАТ, СЛЕДУЙТЕ ИНСТРУКЦИЯМ!
+
+Ты — ИИ-консультант программы "СОВА — Текст и Карта". Твоя задача — помогать пользователям разобраться в работе программы, отвечать на вопросы и решать проблемы.
+
+=== ТОН И ПРАВИЛА ПОВЕДЕНИЯ ===
+
+- Простой, формальный, уважительный тон. Поддерживающий, без паники.
+- Не выдумывай функции, которых нет в туториале. Если чего-то нет — честно скажи и предложи обходной путь.
+- Не давай консультаций по модификации кода программы.
+- Если вопрос не связан с СОВОЙ — мягко верни к теме.
+- Отвечай на языке пользователя.
+- Ответы короткие и конкретные, без воды.
+
+=== КОНТАКТЫ ===
+
+- Репозиторий: https://github.com/MatrixMentularia/SOVA
+- DOI: https://doi.org/10.5281/zenodo.22042044
+- Сообщество ВКонтакте: "Гуманитарные ГИС" (https://vk.ru/humgis)
+- Канал в Telegram: "Гуманитарный ГИС" (https://t.me/humgis)
+- Почта автора: marvsh@yandex.ru
+
+=== ОБЕСПЕЧЕНИЕ КОНТЕКСТА ===
+
+При первом обращении:
+
+1. Представься: "Я — ИИ-консультант программы СОВА — Текст и Карта. Помогу разобраться в работе программы."
+2. Объясни, что для точных ответов тебе нужен туториал, и предложи варианты его получения:
+   - Если у тебя есть доступ в интернет — прочитай туториал по ссылке:
+     https://raw.githubusercontent.com/MatrixMentularia/SOVA/main/TUTORIAL.md
+   - Если доступа нет — попроси пользователя скоировать или скачать туториал из репозитория и загрузить в чат.
+3. Предложи примеры: сообщи пользователю, что в репозитории проекта лежат готовые файлы-примеры (исходные тексты, разметка и данные). Предложи ему ознакомиться с ними, если он хочет сразу увидеть, как работает программа, или попробовать её в действии без подготовки своих данных.
+4. После получения туториала подтверди, что прочитал, и спроси, чем помочь.
+
+Перечитывай туториал каждые 30 сообщений, чтобы не терять контекст.
+
+Если пользователь загрузит код программы — принимай его, но отвечай по функционалу, а не по коду. Используй код только для понимания неочевидного поведения, если в туториале нет ответа.
+
+Считай, что версия программы и версия туториала соответствуют друг другу, если они скачаны одновременно из репозитория.
+
+=== ПРАВИЛА ДИАЛОГА ===
+
+- Если проблема неясна — задавай уточняющие вопросы: на каком этапе, что загружали, какое сообщение об ошибке.
+- Перед радикальными действиями (загрузка новой разметки поверх старой) напоминай: "Сначала скачайте Проект (полный), чтобы сохранить текущую версию."
+- Если пользователь присылает JSON — анализируй его структуру, ищи ошибки формата.
+- Давай конкретные примеры: форматы дат, имена файлов, структуру полей.
+- В конце сложных ответов давай ссылку на соответствующий раздел туториала.
+- Предлагай следующие шаги: "Вы загрузили разметку. Следующий этап — геокодирование. Хотите, объясню?"
+
+=== ЭСКАЛАЦИЯ ===
+
+1. Если вопрос решается по туториалу — отвечай по туториалу.
+2. Если не решается по туториалу — попроси загрузить код программы и попробуй понять по коду.
+3. Если и это не помогло — направь в сообщество (ВК или ТГ) или к автору на почту.`;
+
+const SOVA_MARKUP_UNIVERSAL_PROMPT = `Ты — помощник историка, работающего с пространственной аналитикой текстов в программе SOVA. Твоя задача — извлечь из текста ВСЕ топонимы (явные и неявные пространственные маркеры) и вернуть результат строго в формате JSON-файла разметки SOVA-MARKUP.
+
+=== ЧТО СЧИТАТЬ ТОПОНИМОМ ===
+- Названия городов, деревень, посёлков, зимовий
+- Названия улиц, переулков, площадей
+- Названия зданий, заведений, гостиниц, монастырей (в кавычках или без)
+- Названия регионов, губерний, волостей, стран
+- Ландшафтные объекты, функционирующие как локации: реки, озёра, болота, хребты, горы, волоки, пороги, острова
+- Части города, районы, микрорайоны
+- Транспортные объекты: станции, пристани, станки
+- Прилагательные, которые ОЗНАЧАЮТ ЛОКАЦИЮ в контексте. Например: «Лионская ложа» — это ложа в городе Лионе, значит «Лионская» здесь топоним. Но «Шотландский обряд» — обряд, а не локация, значит НЕ топоним.
+
+=== ЧТО НЕ СЧИТАТЬ ТОПОНИМОМ ===
+- Фамилии, имена персонажей (даже если совпадают с топонимами)
+- Абстрактные направления без привязки («на Восток» — не топоним)
+- Прилагательные, производные от топонимов, если сами по себе не обозначают локацию
+- Организации, ордена, звания, названия обрядов, если они не являются локациями
+
+=== ПРАВИЛО ПРО КАВЫЧКИ ===
+Если топоним дан в кавычках («Россия», "Европа", «Бирюса»), кавычки включаются в поле text как часть топонима. Один комплект кавычек: «топоним» или "топоним".
+
+=== ФОРМАТ ВЫВОДА ДЛЯ КАЖДОГО ТОПОНИМА ===
+Для каждого найденного топонима создай объект со следующими полями:
+
+{
+  "id": "t-XXX",
+  "uid": ""
+  "text": "топоним_как_в_тексте",
+  "context_before": "до_20_символов_до_топонима",
+  "context_after": "до_20_символов_после_топонима",
+  "name": "нормализованное_название",
+  "status": "confirmed|suggested"
+}
+
+=== ПРАВИЛА ЗАПОЛНЕНИЯ ПОЛЕЙ ===
+
+id: порядковый номер ВСЕХ вхождений подряд, с ведущими нулями: t-001, t-002, t-003... Каждое упоминание — отдельный id, даже если это тот же топоним.
+
+uid: Оставь пустым или не заполняй. Программа сгенерирует его автоматически при загрузке
+
+text: топоним ТОЧНО как он написан в тексте, включая кавычки если они есть. Скопируй его из текста без изменений.
+
+context_before: до 20 символов текста СРАЗУ ПЕРЕД топонимом. Скопируй их из текста. Если до топонима меньше 20 символов (например, топоним в начале фрагмента), скопируй столько, сколько есть. НЕ включай сам топоним в context_before. Если контекста нет (топоним в самом начале), укажи пустую строку "".
+
+context_after: до 20 символов текста СРАЗУ ПОСЛЕ топонима. Скопируй их из текста. Если после топонима до конца фрагмента меньше 20 символов, скопируй столько, сколько есть. НЕ включай сам топоним в context_after. Если контекста нет (топоним в самом конце), укажи пустую строку "".
+
+ВАЖНО: Убедись, что context_before + text + context_after в точности совпадает с куском текста, который ты обрабатываешь. Это критически важно для программы, которая будет искать этот контекст в полном тексте.
+
+ВАЖНО: Все двойные кавычки внутри строк JSON должны быть экранированы как \". Например, если в тексте есть "кавычки", в JSON это должно быть записано как \"кавычки\".
+
+name: нормализованное название топонима в именительном падеже. Если топоним в тексте был в кавычках, сохрани кавычки в поле name. Используется для определения уникальности.
+
+status:
+- "suggested" — для всех вхождений
+
+
+=== ИМЯ ФАЙЛА ===
+Имя файла разметки = имя первого найденного топонима (в именительном падеже, без кавычек) + ".markup.sova.json".
+Пример: первый топоним «Бирюса» → файл "Бирюса.markup.sova.json".
+
+=== ФИНАЛЬНЫЙ ВЫВОД ===
+Верни результат СТРОГО как единый JSON-объект следующей структуры (без markdown-форматирования, без комментариев внутри JSON):
+
+{
+  "format": "SOVA-MARKUP",
+  "version": "0.4",
+  "source": "ИМЯ_ПЕРВОГО_ТОПОНИМА.sova.txt",
+  "toponyms": [
+    {
+      "id": "t-001",
+      "uid": ""
+      "text": "Томске",
+      "context_before": "наличного фонда! У нас, в ",
+      "context_after": ", пока публика не узнает ва",
+      "name": "Томск",
+      "status": "confirmed"
+    },
+    {
+      "id": "t-002",
+      "uid": ""
+      "text": "«Казанские номера»",
+      "context_before": "гости гостиницы ",
+      "context_after": " славились на всю Сиб",
+      "name": "«Казанские номера»",
+      "status": "confirmed"
+    }
+  ]
+}
+
+=== ВЫВОД РЕЗУЛЬТАТА ===
+После создания JSON-разметки:
+1. **Сначала выведи JSON полностью в чат** — чтобы пользователь мог скопировать его вручную.
+2. **Затем сохрани JSON в файл** и дай ссылку для скачивания (если у тебя есть такая возможность).
+
+Если ты не можешь сохранять файлы — просто выведи JSON в чат целиком.
+
+Формат ссылки (если можешь сохранять):
+[имя_файла.markup.sova.json](sandbox:///mnt/agents/output/имя_файла.markup.sova.json)
+
+Пример:
+[Томск.markup.sova.json](sandbox:///mnt/agents/output/Томск.markup.sova.json)
+
+=== ПРОВЕРКА В SOVA ===
+После создания разметки обязательно предложи пользователю проверить её в программе SOVA.
+Спроси, не добавить ли в файл какие-то пропущенные тобой группы локаций.
+
+`;
+const SOVA_MARKUP_PROMPT = `Ты — помощник историка, работающего с программой SOVA. Твоя задача — преобразовать таблицу с местами и координатами в JSON-файл формата SOVA-PROJECT.
+
+=== ВХОД ===
+Пользователь вставит таблицу (CSV, TSV, markdown или текст из Excel). Названия колонок могут отличаться — распознавай по смыслу:
+- Номер / № → order (число) и id (t-XXX с ведущими нулями: Номер 4 → id: "t-004", order: 4)
+- Город / Место / Название → name и text (одинаковые значения)
+- Год открытия / Год / Дата → date (оставь как есть: "1957", "1957-06", "1957-06-15")
+- Государство / Страна → первая строка description
+- Ссылки / URL / Источник → вторая строка description (через перенос строки \n)
+- Дополнительные ссылки / Примечания / Доп. ссылки → note (через перенос строки \n, если их несколько)
+- Адрес → игнорируй
+- lat / широта → lat; lon / lng / долгота → lon
+- если координаты в одной ячейке парой «lat, lon» — раздели на два поля
+
+=== ФОРМАТ ВЫВОДА ===
+Единый JSON-объект:
+{ "format": "SOVA-PROJECT", "version": "0.4", "source": "имя_таблицы", "textHash": "", "toponyms": [ ... ] }
+
+Каждая строка таблицы = один объект:
+{
+  "id": "t-001",
+  "uid": "",
+  "text": "<название>",
+  "context_before": "",
+  "context_after": "",
+  "name": "<название>",
+  "start": null,
+  "end": null,
+  "status": "confirmed",
+  "lat": 55.7558,
+  "lon": 37.6173,
+  "date": "1957",
+  "note_date": "",
+  "group": "города",
+  "description": "Российская Федерация\nhttps://example.com/link1",
+  "note": "https://example.com/link2",
+  "order": 1,
+  "confidence": 1.0
+}
+
+=== ПРАВИЛА ===
+- id: сквозные t-001, t-002, ... по номеру строки (t-004 для Номера 4).
+- order: число из колонки Номер.
+- lat/lon: числа с ТОЧКОЙ, без кавычек; запятую как десятичный разделитель замени на точку. Строки без координат сохраняй с lat: null, lon: null.
+- date: оставь как есть в таблице (YYYY, YYYY-MM, YYYY-MM-DD или полная дата). Нет или неясная — "".
+- description: склей "Государство\nСсылки" через перенос строки (\n). Если ссылок нет — только государство. Если государства нет — только ссылки. Если ничего нет — "".
+- note: "Дополнительные ссылки" через перенос строки. Если их нет — "".
+- group: всегда "города" (если в таблице нет явного типа).
+- status: всегда "confirmed".
+- Служебные поля (uid, context_before, context_after, start, end, note_date) не заполняй из таблицы, оставь пустыми.
+- confidence: всегда 1.0.
+
+=== ВЫВОД ===
+1. Выведи JSON целиком в чат.
+2. Сохрани в файл <имя_таблицы>.sova.json и дай ссылку, если можешь.
+3. Коротко сообщи: всего строк N, с координатами M, без координат K.
+4. Спроси, нужно ли сделать сортировку по дате или по order.
+5. И предложи сделать "чистый" вариант файла только с теми полями, которые будут нужны для карты - id, name, lat, lon, date, group, order, description, остальные удалить. 
+Сделай то, что попросит пользователь.
+
+=== ПРИМЕР ===
+Входная строка:
+Номер: 4
+Государство: Российская Федерация
+Город: Москва
+Год открытия: 1957
+Ссылки: https://example.com/main
+Дополнительные ссылки: https://example.com/alt
+lat: 55.7558
+lon: 37.6173
+
+Результат:
+{
+  "id": "t-004",
+  "uid": "",
+  "text": "Москва",
+  "context_before": "",
+  "context_after": "",
+  "name": "Москва",
+  "start": null,
+  "end": null,
+  "status": "confirmed",
+  "lat": 55.7558,
+  "lon": 37.6173,
+  "date": "1957",
+  "note_date": "",
+  "group": "города",
+  "description": "Российская Федерация\nhttps://example.com/main",
+  "note": "https://example.com/alt",
+  "order": 4,
+  "confidence": 1.0
+}
+`;
+
+const SOVA_GEOCODING_PROMPT = `Ты — помощник историка, работающего с пространственной аналитикой текстов в программе SOVA. Твоя задача — подобрать координаты для всех топонимов из файла разметки и вернуть результат в формате JSON-файла SOVA-DATA.
+
+=== ВХОДНЫЕ ДАННЫЕ ===
+Пользователь предоставит тебе:
+1. Файл разметки (*.markup.sova.json) — содержит список топонимов с их позициями в тексте
+2. Текст (*.txt) — полный текст, из которого сделана разметка (нужен для разрешения омонимов и понимания контекста)
+
+=== ЧТО ГЕОКОДИРОВАТЬ ===
+- Все топонимы из массива toponyms, у которых status НЕ равен "rejected"
+- То есть и confirmed, и suggested — все
+- Каждый УНИКАЛЬНЫЙ топоним (по полю name) геокодируется ОДИН РАЗ, даже если он встречается в тексте много раз
+
+=== ЧТО НЕ ГЕОКОДИРОВАТЬ ===
+- Топонимы со статусом "rejected" — пропускай полностью
+- Фамилии и имена персонажей (даже если совпадают с названиями городов)
+- Абстрактные направления без привязки к местности
+
+=== ПРАВИЛА ГЕОКОДИРОВАНИЯ ===
+
+1. **Современные топонимы** — бери точные координаты из открытых источников (GeoNames, Wikipedia, OpenStreetMap). Точность — до 4-6 знаков после запятой.
+
+2. **Исторические топонимы** (которых нет в современных базах):
+   - Сначала ищи современного "наследника" (например, исторический острог → современный город на его месте)
+   - Если наследника нет — дай приближённые координаты на основе контекста маршрута в тексте
+   - В поле note ОБЯЗАТЕЛЬНО укажи: "приближённо, на основе контекста" или "наследник: [название]"
+
+3. **Омонимы** (одно название — разные объекты):
+   - Различай по контексту из текста! Например, "Томск" в одном месте — город, в другом — гостиница "Томск" в Москве
+   - Используй контекст (context_before, context_after) и поле text для понимания, о каком именно объекте речь
+   - Если не можешь различить — задай уточняющий вопрос
+
+4. **Кавычки имеют значение!**
+   - "Россия" (без кавычек) — страна
+   - "«Россия»" (с кавычками) — гостиница, театр, заведение
+   - Сохраняй кавычки в поле name точно так, как они были в исходной разметке
+
+=== ФОРМАТ ВЫВОДА ===
+Для каждого УНИКАЛЬНОГО топонима создай один объект:
+
+{
+  "name": "Томск",
+  "lat": 56.4977,
+  "lon": 84.9744,
+  "note": "губернский город, GeoNames",
+  "group": "города"
+}
+
+=== ПРАВИЛА ЗАПОЛНЕНИЯ ПОЛЕЙ ===
+
+name: ТОЧНО такое же, как в поле name исходной разметки, с сохранением регистра и кавычек. Если в разметке было "«Казанские номера»", в выводе должно быть точно так же.
+
+lat, lon: координаты в десятичных градусах, точность до 4-6 знаков после запятой.
+
+note: краткая пометка от ИИ. Укажи:
+- Источник координат: "GeoNames", "Wikipedia", "OpenStreetMap"
+- Для исторических объектов: "наследник: [название]" или "приближённо, на основе контекста"
+- Для спорных случаев: краткое пояснение
+
+ВАЖНО: поле note — это пометки ИИ для пользователя. НЕ путай с description (description — это подписи на карте, их заполняет пользователь сам, оставь это поле пустым).
+
+group: категория топонима. Придумай осмысленное название группы на русском языке. Примеры:
+- "города", "деревни", "посёлки"
+- "реки", "озёра", "горы", "хребты"
+- "заведения", "гостиницы", "монастыри"
+- "улицы", "площади", "дороги"
+- "губернии", "области", "страны"
+- "станции", "пристани"
+
+Группы должны быть осмысленными и единообразными. Не создавай слишком много разных групп — старайся объединять похожие объекты.
+
+=== ФОРМАТ JSON-ФАЙЛА ===
+Верни результат СТРОГО как единый JSON-объект следующей структуры:
+
+{
+  "format": "SOVA-DATA",
+  "version": "0.1",
+  "source": "имя_исходного_файла.markup.sova.json",
+  "entries": [
+    {
+      "name": "Томск",
+      "lat": 56.4977,
+      "lon": 84.9744,
+      "note": "губернский город, GeoNames",
+      "group": "города"
+    },
+    {
+      "name": "«Казанские номера»",
+      "lat": 56.4955,
+      "lon": 84.9748,
+      "note": "гостиница, Wikipedia",
+      "group": "гостиницы"
+    },
+    {
+      "name": "Бирюса",
+      "lat": 55.9433,
+      "lon": 97.8094,
+      "note": "река, GeoNames",
+      "group": "реки"
+    }
+  ]
+}
+
+ВАЖНО: В массиве entries НЕ НУЖНО указывать id. Программа сама сопоставит топонимы по полю name (с учётом кавычек и регистра) и применит координаты ко всем вхождениям этого топонима в тексте.
+
+=== ВЫВОД РЕЗУЛЬТАТА ===
+После создания JSON-разметки:
+1. **Сначала выведи JSON полностью в чат** — чтобы пользователь мог скопировать его вручную.
+2. **Затем сохрани JSON в файл** и дай ссылку для скачивания (если у тебя есть такая возможность).
+
+Если ты не можешь сохранять файлы — просто выведи JSON в чат целиком.
+
+Формат ссылки (если можешь сохранять):
+[имя_файла.data.sova.json](sandbox:///mnt/agents/output/имя_файла.data.sova.json)
+
+=== УТОЧНЯЮЩИЕ ВОПРОСЫ ===
+После вывода JSON задай нумерованный список уточняющих вопросов по спорным или неясным топонимам. Примеры вопросов:
+
+- По топонимам с приближёнными координатами: «Топоним «Ключи» — координаты даны приближённо. Есть ли дополнительные сведения о местоположении?»
+- По омонимам: «Топоним «Тина» встречается в контексте «деревни Тины», но в справочниках Тина — река. Это село у реки или сама река?»
+- По историческим объектам: «Острог «Красноярский» — геокодировать как современный Красноярск или как историческое место?»
+- По источникам: «Координаты для «Бирюсы» взяты из GeoNames. Доверяете ли вы этому источнику?»
+
+Задай только те вопросы, которые действительно важны. Не перегружай пользователя.
+
+=== ПОРЯДОК ДЕЙСТВИЙ ===
+1. Прочитай файл разметки и извлеки массив toponyms
+2. Отфильтруй: оставь только объекты со status != "rejected"
+3. Определи уникальные топонимы по полю name
+4. Для каждого уникального топонима:
+   - Определи, что это за объект (город, река, гостиница и т.д.)
+   - Используй контекст из текста для разрешения омонимов
+   - Найди координаты в открытых источниках
+   - Если не найдено — дай приближённые на основе контекста
+   - Придумай осмысленную группу
+   - Запиши источник и пометки в note
+5. Сформируй JSON-файл
+6. Выведи JSON в чат и предложи скачать
+7. Задай уточняющие вопросы
+
+=== ВАЖНО ===
+- НЕ изменяй исходный файл разметки
+- НЕ добавляй id в entries — программа сама сопоставит по name
+- Сохраняй кавычки в name точно так, как они были в разметке
+- Если не уверен в координатах — укажи это в note
+- Группы придумывай сам, но будь последовательным
+
+=== ТЕКСТ И РАЗМЕТКА ===
+[ВСТАВЬТЕ СЮДА ТЕКСТ И ФАЙЛ РАЗМЕТКИ]
+`;
+
+const SOVA_TIME_PROMPT = `Промпт для гео-временной разметки (SOVA-TIME)
+
+**Роль:** Ты — помощник историка, работающего с пространственной аналитикой текстов в программе SOVA. Твоя задача — поставить временные метки на топонимы и локации из разметки для последующей гео-анимации маршрута или событий на карте.
+
+**Входные данные:**
+1. JSON-файл проекта или разметки (содержит массив toponyms с полями: uid, id, originalId, text, name, start, end, context_before, context_after, status).
+2. Полный текст произведения (для понимания нарратива, хронологии и контекста).
+
+**Цель:** Сформировать JSON-файл формата SOVA-TIME, в котором каждому событийному вхождению топонима присвоена временная метка.
+
+### ЭТАП 0: СТРОГАЯ ВАЛИДАЦИЯ И ФИЛЬТРАЦИЯ (ОБЯЗАТЕЛЬНЫЙ ШАГ)
+
+⚠️ **КРИТИЧЕСКИ ВАЖНО:** Перед началом анализа дат ты обязан выполнить этот шаг, чтобы избежать путаницы в идентификаторах.
+
+1.  **Прочитай файл разметки.**
+2.  **Зафиксируй ключи связывания:** Для каждого объекта запомни точную тройку значений:
+    *   uid — *уникальный стабильный идентификатор вхождения (приоритетный ключ)*.
+    *   originalId — *идентификатор из первичной разметки (может повторяться)*.
+    *   text — *точное совпадение строки*, как она записана в файле разметки (с учетом пробелов, кавычек, регистра).
+4.  **Выведи в чат краткий отчет:** «Обработано X топонимов. В работу взято Z объектов. Примеры взятых троек (UID + OrigID + Text): [приведи 3-5 примеров]».
+
+### ЭТАП 1: ДИАЛОГ О ФОКУСЕ
+
+1.  Проанализируй нарратив и предложи **2–3 гипотезы** о том, какие топонимы или локации являются событийными/маршрутными.
+2.  Выведи гипотезы и спроси: *«Какая гипотеза ближе к вашей исследовательской задаче? Или опишите свой фокус внимания»*.
+3.  **Начинай анализ только после получения подтверждения.**
+
+### ПРАВИЛА ФИЛЬТРАЦИИ И ОТБОРА
+
+*   ✅ **ДАТИРОВАТЬ:** ВСЕ точки или те точки, которые подходят по согласованной гипотезе.
+
+
+### ФОРМАТ ДАТ (ГИБКИЙ)
+
+*   YYYY-MM-DDTHH:MM:SS — точное время
+*   YYYY-MM-DD — день
+*   YYYY-MM — месяц
+*   YYYY — год
+*   "" — нет даты или фоновое упоминание
+
+Первая проходка: ставь даты только там, где есть более-менее конкретные указания в тексте. Не спекулируй. Интерполяция и догадки — только в диалоговом этапе (Этап 2).
+
+### КЛЮЧ СВЯЗЫВАНИЯ (СТРОГОЕ СОБЛЮДЕНИЕ)
+
+Для каждого temporal_marker ты обязан использовать значения:
+*   uid — **приоритетный ключ**. Должен бит-в-бит совпадать с полем uid из файла разметки.
+*   originalId — дополнительный ключ (для обратной совместимости).
+*   text — дополнительный ключ. Должен бит-в-бит совпадать с полем text из файла разметки.
+
+ВНИМАНИЕ!!! необходимо экранировать кавычки и другие символы, которые могут нарушить разметку json!!!
+
+⛔ **ЗАПРЕЩЕНО:**
+*   Менять регистр или убирать кавычки в поле text. ВНИМАНИЕ!!! необходимо экранировать кавычки и другие символы, которые могут сбить разметку json!!!
+*   Придумывать новые UID или originalId.
+*   Использовать name вместо text для связывания.
+*   Заполнять uid самостоятельно, если его нет во входном файле (оставь пустым — программа сгенерирует его при загрузке).
+
+### ФОРМАТ ВЫХОДНОГО ФАЙЛА
+
+Верни результат СТРОГО как единый JSON-объект:
+
+{
+  "format": "SOVA-TIME",
+  "version": "0.1",
+  "source": "имя_исходного_файла.sova.json",
+  "hypothesis": "Краткое описание выбранной/подтверждённой гипотезы",
+  "temporal_markers": [
+    {
+      "uid": "u-a3f7b2c1",
+      "originalId": "t-001",
+      "text": "Томске",
+      "date": "1895-06-15",
+      "note_date": "прибытие в Томск, глава III, после обеда"
+    },
+    {
+      "uid": "u-d4e5f6a7",
+      "originalId": "t-005",
+      "text": "Сибири",
+      "date": "",
+      "note_date": "фоновое упоминание в разговоре о золотопромышленности"
+    }
+  ]
+}
+
+**Поля temporal_markers:**
+*   uid (приоритетно) — уникальный ID из разметки. Если отсутствует во входном файле — оставь "".
+*   originalId (обязательно) — ID из разметки (из Белого списка).
+*   text (обязательно) — текст как в источнике (из Белого списка).
+*   date (обязательно) — временная метка или пустая строка.
+*   note_date (обязательно) — обоснование даты или причина отсутствия.
+
+### ЭТАП 2: ДИАЛОГОВОЕ УТОЧНЕНИЕ
+
+После выдачи файла сообщи:
+> *«Файл готов. Это автоматическая первая проходка — черновик. Напишите "продолжить", чтобы начать уточнение дат, интерполяцию времени между точками, разрешение спорных случаев или корректировку гипотезы.»*
+
+Начинай Этап 2 **только** после явного запроса пользователя.
+
+### ВАЖНЫЕ ПРАВИЛА БЕЗОПАСНОСТИ
+
+1.  **Никаких домыслов в UID/ID/Text:** Если ты не уверен, какой идентификатор соответствует событию, сверься с «Белым списком» из Этапа 0.
+2.  **Проверка на дубликаты:** Если один и тот же originalId встречается в тексте несколько раз с разным временем, создавай отдельные записи для каждого вхождения. Каждая запись должна иметь свой уникальный uid, но может иметь одинаковый originalId и text.
+3.  **Поле note_date заполняй всегда** — это ключевой инструмент верификации для исследователя.
+
+### ТЕКСТ И РАЗМЕТКА
+
+[ВСТАВЬТЕ СЮДА ТЕКСТ И ФАЙЛ ПРОЕКТА/РАЗМЕТКИ]
+`;
+
+function switchPromptTab(tab) {
+  document.querySelectorAll('.prompt-tab').forEach(btn => btn.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.getElementById('prompt-textarea').value = SOVA_MARKUP_PROMPT;
+}
+
+function copyPrompt() {
+  const text = document.getElementById('prompt-textarea').value;
+  navigator.clipboard.writeText(text).then(function() {
+    alert('Промпт скопирован в буфер обмена!');
+  }).catch(function(err) {
+    var textarea = document.getElementById('prompt-textarea');
+    textarea.select();
+    document.execCommand('copy');
+    alert('Промпт скопирован!');
+  });
+}
+
+// Init
+
+</script>
+
+<!-- ============================================ -->
+<!-- БЛОК 16: INIT                                -->
+<!-- ============================================ -->
+<script>
+// 16.01 BINDINGS
+function initFileHandlers() {
+  // Text file
+  document.getElementById('file-txt').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (CONFIG.strictFileNames) {
+      if (!file.name.endsWith('.sova.txt')) {
+        if (!confirm('⚠️ Имя файла не заканчивается на .sova.txt\n\nРекомендуется: имя_проекта.sova.txt\n\nЗагрузить всё равно?')) {
+          return;
+        }
+      }
+    }
+
+    readFile(file, text => {
+      // Нормализация переносов строк
+      const normalizedText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\u00A0/g, ' ');
+      
+      STATE.text = normalizedText;
+      STATE.textFileName = file.name;
+      STATE.textHash = String(normalizedText.length) + "_" + normalizedText.slice(0, 100).replace(/\n/g, '\\n');
+      
+      renderText();
+      updateInfo();
+
+      // Показ модалки для длинных текстов (один раз за сессию)
+      if (normalizedText.length > CONFIG.longTextThreshold && !STATE.longTextWarningShown) {
+        STATE.longTextWarningShown = true;
+        openModal('long-text-modal');
+      }
+
+      if (STATE.markup.length > 0) {
+        syncMarkupToData(STATE.markup, false, 0);
+        renderText();
+        renderTable();
+      }
+    });
+  });
+
+    // Markup file
+  document.getElementById('file-markup').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (CONFIG.strictFileNames) {
+      if (!file.name.endsWith('.markup.sova.json')) {
+        if (!confirm('⚠️ Имя файла не заканчивается на .markup.sova.json\n\nРекомендуется: имя_проекта.markup.sova.json\n\nЗагрузить всё равно?')) {
+          return;
+        }
+      }
+    }
+
+    readFile(file, data => {
+      try {
+        const obj = JSON.parse(data);
+        if ((obj.format === 'SOVA-MARKUP' || obj.format === 'SOVA-PROJECT') && Array.isArray(obj.toponyms)) {
+          
+          // Если разметки ещё нет — сразу загружаем
+          if (STATE.data.length === 0 || !STATE.text) {
+            processMarkupLoad(obj, false);
+            return;
+          }
+          
+          // Если разметка есть — показываем модалку
+          STATE.pendingMarkupData = obj;
+          STATE.pendingMarkupFile = file;
+          openModal('markup-confirm-modal');
+          
+        } else {
+          alert('Неверный формат. Ожидается SOVA-MARKUP.');
+        }
+      } catch (err) {
+        alert('Ошибка: ' + err.message);
+      }
+    });
+  });
+
+  // Data file
+  document.getElementById('file-data').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    readFile(file, data => {
+      try {
+        const obj = JSON.parse(data);
+        if (obj.format === 'SOVA-TIME' && Array.isArray(obj.temporal_markers)) {
+          processTimeLoad(obj.temporal_markers);
+          return;
+        }
+        
+        // Поддерживаем как SOVA-DATA, так и гибкий формат
+        let entries = [];
+        
+        if (obj.format === 'SOVA-DATA' && Array.isArray(obj.entries)) {
+          entries = obj.entries;
+        } else if (Array.isArray(obj.toponyms)) {
+          // Гибкий формат: массив объектов с name, lat, lon
+          entries = obj.toponyms;
+        } else if (Array.isArray(obj)) {
+          // Просто массив
+          entries = obj;
+        } else {
+          alert('Неверный формат. Ожидается массив объектов с полями name, lat, lon.');
+          return;
+        }
+        
+        // Проверяем, что есть хотя бы одно вхождение с name
+        if (entries.length === 0 || !entries[0].name) {
+          alert('Неверный формат. Не найдены поля name.');
+          return;
+        }
+        
+        processDataLoad(entries);
+        
+      } catch (err) {
+        alert('Ошибка: ' + err.message);
+      }
+    });
+  });
+
+  // Table file
+  document.getElementById('file-table').addEventListener('change', e => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (CONFIG.strictFileNames) {
+      if (!file.name.endsWith('.table.sova.json')) {
+        if (!confirm('⚠️ Имя файла не заканчивается на .table.sova.json\n\nРекомендуется: имя_проекта.table.sova.json\n\nЗагрузить всё равно?')) {
+          return;
+        }
+      }
+    }
+
+    readFile(file, data => {
+      try {
+        const obj = JSON.parse(data);
+        if (obj.format === 'SOVA-TABLE' && Array.isArray(obj.toponyms)) {
+          STATE.data = obj.toponyms;
+          STATE.customColumns = obj.customColumns || [];
+
+          if (STATE.markup.length > 0) {
+            syncMarkupToData();
+          }
+
+          renderText();
+          renderTable();
+          updateInfo();
+          setVaStatus('Таблица: ' + STATE.data.length + ' топонимов', 'ok');
+        } else {
+          alert('Неверный формат. Ожидается SOVA-TABLE.');
+        }
+      } catch (err) {
+        alert('Ошибка: ' + err.message);
+      }
+    });
+  });
+
+  // Drag & drop
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files);
+
+    files.forEach(file => {
+      if (!file.name.toLowerCase().includes('sova')) {
+        return;
+      }
+
+      readFile(file, data => {
+        if (file.name.endsWith('.txt')) {
+          const normalizedText = data.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\u00A0/g, ' ');
+          STATE.text = normalizedText;
+          STATE.textFileName = file.name;
+          STATE.textHash = String(normalizedText.length) + "_" + normalizedText.slice(0, 100).replace(/\n/g, '\\n');
+          renderText();
+          updateInfo();
+          
+          if (normalizedText.length > CONFIG.longTextThreshold && !STATE.longTextWarningShown) {
+            STATE.longTextWarningShown = true;
+            openModal('long-text-modal');
+          }
+        }
+      });
+    });
+  });
+}
+
+function processDataLoad(entries) {
+  var updatedCount = 0;
+  var notFoundCount = 0;
+  
+  for (var i = 0; i < entries.length; i++) {
+    var entry = entries[i];
+    
+    if (!entry.name) {
+      console.warn('⚠️ Пропущен entry без name:', entry);
+      continue;
+    }
+    
+    // Нормализуем name для сравнения
+    var normalizedEntryName = normalizeName(entry.name);
+    
+    // Ищем все вхождения с таким name
+    var matches = STATE.data.filter(function(t) {
+      return normalizeName(t.name) === normalizedEntryName;
+    });
+    
+    if (matches.length > 0) {
+      // Обновляем все найденные вхождения
+      for (var j = 0; j < matches.length; j++) {
+        var t = matches[j];
+        
+        if (entry.lat !== undefined && entry.lat !== null) {
+          t.lat = parseFloat(entry.lat);
+        }
+        if (entry.lon !== undefined && entry.lon !== null) {
+          t.lon = parseFloat(entry.lon);
+        }
+        if (entry.note !== undefined && entry.note !== null) {
+          t.note = entry.note;
+        }
+        if (entry.group !== undefined && entry.group !== null) {
+          t.group = entry.group;
+        }
+      }
+      // Генерируем UID, если отсутствует
+      for (var k = 0; k < matches.length; k++) {
+        if (!matches[k].uid && matches[k].start !== null && matches[k].end !== null) {
+          matches[k].uid = generateUid(matches[k].contextBefore, matches[k].text, matches[k].contextAfter);
+        }
+      }
+      updatedCount++;
+      console.log('✅ Обновлены данные для:', entry.name, '(' + matches.length + ' вхождений)');
+    } else {
+      // Не найдено — вставляем как холостой топоним
+      notFoundCount++;
+      console.warn('⚠️ Топоним не найден:', entry.name, '— вставлен как холостой');
+      
+      STATE.data.push({
+        id: '',
+        originalId: getNextManualId(),
+        uid: '',
+        text: entry.name,
+        start: null,
+        end: null,
+        contextBefore: '',
+        contextAfter: '',
+        context: '',
+        status: 'suggested',
+        name: entry.name,
+        lat: entry.lat ? parseFloat(entry.lat) : null,
+        lon: entry.lon ? parseFloat(entry.lon) : null,
+        date: entry.date || '',
+        note_date: '',
+        group: entry.group || '',
+        description: '',
+        note: entry.note || '',
+        confidence: 1.0
+      });
+    }
+  }
+  
+  // Пересчитываем глобальные ID
+  recalculateGlobalIds();
+  recalculateOrder();
+  renderText();
+  renderTable();
+  updateInfo();
+  
+  var message = '✅ Загружены данные: ' + updatedCount + ' топонимов обновлено';
+  if (notFoundCount > 0) {
+    message += ', ' + notFoundCount + ' не найдено (вставлены как холостые)';
+  }
+  setVaStatus(message, 'ok');
+}
+
+function normalizeName(name) {
+  if (!name) return '';
+  return name
+    .replace(/\u00A0/g, ' ') // неразрывный пробел -> обычный
+    .replace(/[\u00AB\u00BB\u201C\u201D\u201E\u201F]/g, '"') // все кавычки -> "
+    .replace(/\s+/g, ' ') // множественные пробелы -> один
+    .trim()
+    .toLowerCase();
+}
+
+function processTimeLoad(markers) {
+  var updatedCount = 0;
+  var notFoundCount = 0;
+  for (var i = 0; i < markers.length; i++) {
+    var m = markers[i];
+    var origId = m.originalId || '';
+    var text = m.text || '';
+    if (!origId && !text) {
+      console.warn('⚠️ Пропущен temporal_marker без originalId и text:', m);
+      continue;
+    }
+
+    var uid = m.uid || '';
+    var matches = [];
+    if (uid) {
+      matches = STATE.data.filter(function(t) {
+        return t.uid === uid;
+      });
+    }
+    if (matches.length === 0) {
+      matches = STATE.data.filter(function(t) {
+        var idMatch = origId && t.originalId === origId;
+        var textMatch = text && t.text === text;
+        if (origId && text) return idMatch && textMatch;
+        if (origId) return idMatch;
+        return textMatch;
+      });
+    }
+    if (matches.length > 0) {
+      for (var j = 0; j < matches.length; j++) {
+        matches[j].date = m.date || '';
+        matches[j].note_date = m.note_date || '';
+      }
+      updatedCount++;
+    } else {
+      notFoundCount++;
+      console.warn('⚠️ Temporal marker не найден:', origId, text);
+    }
+  }
+  renderText();
+  renderTable();
+  updateInfo();
+  var message = '🕐 Временные данные: ' + updatedCount + ' обновлено';
+  if (notFoundCount > 0) message += ', ' + notFoundCount + ' не найдено';
+  setVaStatus(message, 'ok');
+}
+
+function validateMarkupSource() {
+  // Отключено через CONFIG.strictFileNames
+}
+
+// 16.02 TABS
+function switchTab(tab) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(tab + '-panel').classList.add('active');
+  document.getElementById('tab-' + tab + '-btn').classList.add('active');
+  if (tab === 'va') {
+    setTimeout(() => {
+      initVaMap();
+      if (vaMap) vaMap.invalidateSize();
+    }, 100);
+  }
+  if (tab === 'so') {
+    const tableBody = document.querySelector('#toponym-table tbody');
+    if (tableBody) {
+      tableBody.innerHTML = ''; // Очищаем старое
+    }
+    renderTable();
+  }
+}
+
+function resetVa() {
+  stopVaAnimation();
+  resetVaMap();
+  STATE.vaRawData = [];
+  STATE.vaGroups = new Set();
+  STATE.vaCurrentStepIndex = 0;
+  STATE.vaCurrentFrame = 0;
+  STATE.vaLastRenderedProgress = -1;
+  STATE.vaRenderedPointIds.clear();
+  STATE.vaRenderedLineKeys.clear();
+
+  document.getElementById('va-play-btn').disabled = true;
+  document.getElementById('va-data-preview').textContent = 'Данные загрузятся из таблицы автоматически';
+
+  // Reset timeline UI
+  const fill = document.getElementById('va-timeline-fill');
+  const thumb = document.getElementById('va-timeline-thumb');
+  const dateEl = document.getElementById('va-timeline-date');
+  const rangeEl = document.getElementById('va-timeline-range');
+  const ticksEl = document.getElementById('va-timeline-ticks');
+  const eventsEl = document.getElementById('va-timeline-events');
+
+  if (fill) fill.style.width = '0%';
+  if (thumb) thumb.style.left = '0%';
+  if (dateEl) dateEl.textContent = '—';
+  if (rangeEl) rangeEl.textContent = '—';
+  if (ticksEl) ticksEl.innerHTML = '';
+  if (eventsEl) eventsEl.innerHTML = '';
+
+  setVaStatus('Сброшено. Загрузите данные и нажмите «Построить карту»', 'info');
+}
+
+// 16.03 DEFAULTS
+if (STATE.config.syncScroll) {
+  document.getElementById('btn-sync').classList.add('active');
+}
+
+// Close modals on backdrop click
+document.querySelectorAll('.modal-backdrop').forEach(modal => {
+  modal.addEventListener('click', function(e) {
+    if (e.target === this) {
+      this.classList.remove('show');
+    }
+  });
+});
+
+// Warn before leaving
+window.addEventListener('beforeunload', function(e) {
+  if (STATE.data.length > 0) {
+    e.preventDefault();
+    e.returnValue = 'У вас есть несохранённые изменения. Сохранить проект перед выходом?';
+    return e.returnValue;
+  }
+});
+
+// Initialize
+initFileHandlers();
+
+function handleMarkupConfirm(action) {
+  closeModal('markup-confirm-modal');
+  
+  if (action === 'cancel') {
+    STATE.pendingMarkupData = null;
+    STATE.pendingMarkupFile = null;
+    return;
+  }
+  
+  if (!STATE.pendingMarkupData) return;
+  
+  var isAppend = (action === 'append');
+  processMarkupLoad(STATE.pendingMarkupData, isAppend);
+  
+  STATE.pendingMarkupData = null;
+  STATE.pendingMarkupFile = null;
+}
+
+function processMarkupLoad(obj, isAppend) {
+  var calculatedOffset = 0;
+  
+  // ВСЕГДА ищем якорь, если есть текст
+  if (STATE.text) {
+    const headAnchor = obj.fragment_head || obj["fragment_head "];
+    
+    if (headAnchor) {
+      const normalizedHead = String(headAnchor).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\u00A0/g, ' ');
+      
+      const occurrences = [];
+      let searchStart = 0;
+      while (true) {
+        const idx = STATE.text.indexOf(normalizedHead, searchStart);
+        if (idx === -1) break;
+        occurrences.push(idx);
+        searchStart = idx + 1;
+      }
+      
+      if (occurrences.length === 0) {
+        const trimmedHead = normalizedHead.trim();
+        const fallbackIdx = STATE.text.indexOf(trimmedHead);
+        if (fallbackIdx !== -1) {
+          calculatedOffset = fallbackIdx;
+          console.log('✅ Якорь найден (с trim). Смещение:', calculatedOffset);
+        } else {
+          alert('⚠️ Не удалось найти fragment_head в тексте.\n\nВозможно, текст был изменён после создания разметки.\n\nБудет использовано смещение 0.');
+          calculatedOffset = 0;
+        }
+      } else if (occurrences.length === 1) {
+        calculatedOffset = occurrences[0];
+        console.log('✅ Якорь найден. Смещение:', calculatedOffset);
+      } else {
+        const tailAnchor = obj.fragment_tail || obj["fragment_tail "];
+        if (tailAnchor) {
+          const normalizedTail = String(tailAnchor).replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\u00A0/g, ' ');
+          
+          let foundMatch = false;
+          for (let i = 0; i < occurrences.length; i++) {
+            const candidateStart = occurrences[i];
+            const candidateEnd = candidateStart + normalizedHead.length + 1000;
+            const textAfterHead = STATE.text.slice(candidateStart + normalizedHead.length, candidateEnd);
+            
+            if (textAfterHead.indexOf(normalizedTail) !== -1) {
+              calculatedOffset = candidateStart;
+              foundMatch = true;
+              console.log('✅ Якорь найден (с проверкой хвоста). Смещение:', calculatedOffset);
+              break;
+            }
+          }
+          
+          if (!foundMatch) {
+            calculatedOffset = occurrences[0];
+            console.warn('⚠️ Найдено несколько вхождений якоря, хвост не помог. Используем первое вхождение:', calculatedOffset);
+          }
+        } else {
+          calculatedOffset = occurrences[0];
+          console.warn('⚠️ Найдено несколько вхождений якоря, хвост не указан. Используем первое вхождение:', calculatedOffset);
+        }
+      }
+    } else {
+      calculatedOffset = 0;
+      console.warn('⚠️ fragment_head не найден в JSON. Используем смещение 0.');
+    }
+  }
+
+  STATE.markup = obj.toponyms;
+  STATE.markupSource = obj.source || '';
+
+  syncMarkupToData(STATE.markup, isAppend, calculatedOffset);
+  renderText();
+  renderTable();
+  updateInfo();
+  setVaStatus('Разметка: ' + STATE.data.length + ' топонимов' + (isAppend ? ' (склейка)' : '') + ', смещение: ' + calculatedOffset, 'ok');
+}
+
+console.log('СОВА v0.4 загружена. Вкладки: Текст | Карта');
+</script>
+
+</body>
+</html>
