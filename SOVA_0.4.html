@@ -32,7 +32,7 @@
       12 VA_TIMELINE — таймлайн
       13 VA_ANIMATION — анимация
       14 VA_EXPORT   — экспорт ВА
-      15 AI_PROMPTS  — промпты для ИИ (заглушка)
+      15 AI_PROMPTS  — промпты для ИИ
       16 INIT        — инициализация
     -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -340,6 +340,11 @@ input[type="file"] { display: none; }
 #va-map {
   width: 100%;
   height: 100%;
+}
+
+/* Перекрашиваем стандартную карту OSM в исторический стиль */
+.leaflet-container img {
+    filter: grayscale(80%) sepia(50%) contrast(70%) brightness(100%);
 }
 
 /* Крестик в истинном центре карты (точка, откуда берутся координаты центра) */
@@ -916,6 +921,17 @@ input[type="file"] { display: none; }
   color: #2a2a2a;
 }
 #toponym-table th:hover .col-delete { opacity: 1; }
+.va-disclaimer {
+  position: sticky;
+  bottom: 0;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #eee;
+  font-size: 11px;
+  color: #888;
+  line-height: 1.5;
+  background: var(--va-panel-bg);
+}
 </style>
 
 <!-- ============================================ -->
@@ -1034,14 +1050,15 @@ input[type="file"] { display: none; }
 
     <h3 style="color:#4a4a4a; font-size:13px; margin-bottom:6px;">Благодарности</h3>
     <p style="color:#555; font-size:12px; line-height:1.6; margin-bottom:14px;">
+      Картографическая подложка предоставлена сторонними сервисами, за её содержание авторы данного ПО не несут ответственности.<br><br>
       Программа создана на базе <a href="https://leafletjs.com" target="_blank" rel="noopener" style="color:#c9a96e;">Leaflet</a>
-      и картографических данных <a href="https://www.openstreetmap.org" target="_blank" rel="noopener" style="color:#c9a96e;">OpenStreetMap</a>
+      и картографических данных <a href="https://www.openstreetmap.ru" target="_blank" rel="noopener" style="color:#c9a96e;">OpenStreetMap</a>
       © участники OSM.
     </p>
     <p style="color:#555; font-size:12px; line-height:1.6; margin-bottom:14px;">
       Отдельная благодарность тестировщикам, бета-пользователям и всем, кто помогал выработать рабочие промпты для ИИ:<br>
       <!-- [СЮДА ВСТАВИТЬ СПИСОК ИМЁН, например: Иванов И., Петров П., Сидорова С.] -->
-      <i>Котов А.С., Меркулов С.А., Бочаров А.В., а также нейросетевые помощники</i>
+      <i>Белкин Д.Ю., Некрылов С.А., Котов А.С., Меркулов С.А., Бочаров А.В., а также нейросетевые помощники</i>
     </p>
 
 
@@ -1231,15 +1248,10 @@ input[type="file"] { display: none; }
     <div class="va-section-label">Статус</div>
     <div id="va-status" class="va-status info">Загрузите данные в таблицу и нажмите «Построить карту»</div>
   </div>
-  <div style="font-size:11px; color:#999; line-height:1.6;">
-    <b>Поля таблицы:</b><br>
-    • name — название<br>
-    • lat, lon — координаты<br>
-    • date — дата (YYYY-MM-DD)<br>
-    • order — порядок<br>
-    • group — группа/цвет<br>
-    • description — описание
+  <div class="va-disclaimer">
+    Картографическая подложка предоставлена сторонними сервисами,<br>за её содержание авторы данного ПО не несут ответственности.
   </div>
+  
 </div>
       <div id="va-main">
         <div id="va-map-wrap">
@@ -1247,7 +1259,7 @@ input[type="file"] { display: none; }
           <div id="va-center-cross"></div>
           <div class="map-attribution">
             <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a> |
-            © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors
+            © <a href="https://www.openstreetmap.ru/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors
           </div>
           <div class="va-legend" id="va-legend" style="display:none;"></div>
         </div>
@@ -2724,11 +2736,21 @@ const vaGroupColors = {
 };
 
 function getVaGroupColor(group) {
-  if (!vaGroupColors[group]) {
-    const hue = (group.split('').reduce((a, b) => a + b.charCodeAt(0), 0) * 137) % 360;
-    vaGroupColors[group] = 'hsl(' + hue + ', 70%, 60%)';
-  }
-  return vaGroupColors[group];
+    if (!vaGroupColors[group]) {
+        // Используем стабильный seed для одинаковых групп
+        const str = group.toLowerCase().trim();
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        
+        // Распределяем hue равномерно по кругу (шаг ~43 градуса), избегая грязных оттенков
+        const hue = Math.abs(hash % 8) * 43; 
+        
+        // Повышаем яркость и насыщенность для лучшей читаемости пинов
+        vaGroupColors[group] = 'hsl(' + hue + ', 80%, 62%)';
+    }
+    return vaGroupColors[group];
 }
 
 function initVaMap() {
@@ -2876,7 +2898,7 @@ async function performVaSearch() {
     
     setVaStatus('🔍 Поиск...', 'info');
     try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+        const response = await fetch(`https://nominatim.openstreetmap.ru/search?format=json&q=${encodeURIComponent(query)}`);
         const data = await response.json();
         
         vaSearchResults.innerHTML = '';
@@ -2939,7 +2961,7 @@ performVaSearch = async function() {
     
     setVaStatus('🔍 Поиск...', 'info');
     try {
-        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`);
+        const response = await fetch(`https://nominatim.openstreetmap.ru/search?format=json&q=${encodeURIComponent(query)}`);
         const data = await response.json();
         STATE.lastSearchResults = data; // Сохраняем
         
@@ -3705,6 +3727,15 @@ const MAP_TEMPLATE = `
     line-height: 1.5;
   }
   .footer a { color: var(--va-accent); text-decoration: none; }
+  .footer-disclaimer {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid #eee;
+    font-size: 9px;
+    color: #999;
+    line-height: 1.4;
+    font-style: italic;
+  }
   /* Main area */
   #main {
     flex: 1;
@@ -3718,6 +3749,12 @@ const MAP_TEMPLATE = `
     min-height: 0;
   }
   #map { width: 100%; height: 100%; }
+
+  /* Перекрашиваем стандартную карту OSM в исторический стиль */
+  .leaflet-container img {
+      filter: grayscale(80%) sepia(50%) contrast(90%) brightness(95%);
+  }
+
   .map-control-panel {
     position: absolute;
     top: 20px;
@@ -3915,6 +3952,7 @@ const MAP_TEMPLATE = `
   <div class="footer">
     Создано в <b>СОВА</b> © Марина Шилова | <a href="mailto:marvsh@yandex.ru">marvsh@yandex.ru</a>
     <a href="https://doi.org/10.5281/zenodo.22042044"><img src="https://zenodo.org/badge/1339910338.svg" alt="DOI"></a>
+    <div class="footer-disclaimer">Картографическая подложка предоставлена сторонними сервисами,<br>за её содержание авторы данного ПО не несут ответственности.</div>
   </div>
 </div>
 
@@ -3925,7 +3963,7 @@ const MAP_TEMPLATE = `
     <div id="map"></div>
     <div class="map-attribution">
       <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a> |
-      © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors
+      © <a href="https://www.openstreetmap.ru/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors
     </div>
     <div class="map-control-panel" id="zoom-panel">
       <label for="max-zoom-select">Макс. зум</label>
@@ -3977,10 +4015,17 @@ var groupColors = {
   'города': '#e94560', 'реки': '#5dade2', 'горы': '#27ae60',
   'гостиницы': '#f39c12', 'станции': '#9b59b6', 'default': '#5dade2'
 };
+
+
 function getColor(group) {
   if (groupColors[group]) return groupColors[group];
-  var hue = (group.split('').reduce(function(a,b){return a+b.charCodeAt(0)},0) * 137) % 360;
-  groupColors[group] = 'hsl('+hue+',70%,60%)';
+  var str = (group || '').toLowerCase().trim();
+  var hash = 0;
+  for (var i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  var hue = Math.abs(hash % 8) * 43;
+  groupColors[group] = 'hsl(' + hue + ', 80%, 62%)';
   return groupColors[group];
 }
 
